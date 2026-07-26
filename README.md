@@ -1,4 +1,4 @@
-# Action Agent ⚡
+# Acrion Agent ⚡
 
 An autonomous, full-stack AI-driven trading assistant designed to run headlessly as a cost-optimized **Cloudflare Worker**. It continuously watches real-time tick movements, leverages state-of-the-art LLMs (**Poolside AI** & **Gemini API**) to perform automated analysis, executes Options and CFD contracts via **Deriv**, persists state in **Cloudflare D1**, and provides a rich control layer via **Telegram Bot**.
 
