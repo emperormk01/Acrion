@@ -165,7 +165,13 @@ const workerHandler = {
             let msg = `🤖 <b>Decision: ${dec.action}</b>\n\n`;
             msg += `<i>Reasoning:</i> ${dec.reason}\n\n`;
             if (exec.status === "SUCCESS") {
-              msg += `✅ <b>Execution SUCCESS</b>\nBought ${exec.details.shortcode || exec.details.direction}\nID: ${exec.details.contract_id || exec.details.position_id}`;
+              if (mode === "cfd") {
+                const actionVerb = exec.details.direction === "BUY" ? "🟢 Opened Long Position" : "🔴 Opened Short Position";
+                msg += `✅ <b>Execution SUCCESS</b>\n<b>${actionVerb}</b> (lots: ${exec.details.lots})\nEntry Price: $${exec.details.entry_price}\nID: <code>${exec.details.position_id}</code>`;
+              } else {
+                const actionVerb = dec.action === "BUY_CALL" ? "🟢 Purchased CALL Option (Bullish)" : "🔴 Purchased PUT Option (Bearish)";
+                msg += `✅ <b>Execution SUCCESS</b>\n<b>${actionVerb}</b>\nShortcode: <code>${exec.details.shortcode}</code>\nID: <code>${exec.details.contract_id}</code>`;
+              }
             } else {
               msg += `⚠️ <b>Execution ${exec.status}</b>`;
             }
