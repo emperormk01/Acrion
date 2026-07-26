@@ -185,7 +185,7 @@ const workerHandler = {
           }
 
           if (command === "/start" || command === "/help") {
-            await sendMessage(chatId, `🤖 <b>Acrion Agent</b>\n\nAvailable commands:\n/status - Get agent status\n/trade - Trigger a manual CFD/Options trade cycle\n/amount - Configure trading amounts\n/report - Fetch the latest trading report`);
+            await sendMessage(chatId, `🤖 <b>Acrion Agent</b>\n\nAvailable commands:\n/status - Get agent status\n/trade - Trigger a manual CFD/Options trade cycle\n/amount - Configure trading amounts\n/report - Fetch the latest trading report\n/memory - View the agent's persistent self-evolution memory\n/model - Configure the AI model`);
             return jsonResponse({ ok: true });
           }
 
@@ -227,6 +227,43 @@ const workerHandler = {
                await sendMessage(chatId, "❌ No reports found or error retrieving report.");
              }
              return jsonResponse({ ok: true });
+          }
+
+          if (command === "/memory") {
+            const symbol = (args[1] || "R_100").toUpperCase();
+            await sendMessage(chatId, `⏳ Fetching agent self-evolution memory for <b>${symbol}</b>...`);
+            await dbHelper.initializeSchema();
+            const memoryText = await dbHelper.getAgentMemory(symbol);
+            if (memoryText && memoryText.trim() !== "") {
+              let html = memoryText;
+              html = html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+              
+              // Convert basic Markdown to Telegram-safe HTML
+              html = html.replace(/^### (.*$)/gim, "<b>$1</b>");
+              html = html.replace(/^## (.*$)/gim, "<b><u>$1</u></b>");
+              html = html.replace(/^# (.*$)/gim, "✨ <b><u>$1</u></b> ✨");
+              html = html.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
+              html = html.replace(/\*(.*?)\*/g, "<i>$1</i>");
+              html = html.replace(/`(.*?)`/g, "<code>$1</code>");
+              
+              const chunkSize = 3500;
+              let currentMsg = "";
+              const lines = html.split("\n");
+              
+              for (const line of lines) {
+                if ((currentMsg + line).length > chunkSize) {
+                  await sendMessage(chatId, currentMsg);
+                  currentMsg = "";
+                }
+                currentMsg += line + "\n";
+              }
+              if (currentMsg.trim() !== "") {
+                await sendMessage(chatId, currentMsg);
+              }
+            } else {
+              await sendMessage(chatId, `ℹ️ No self-evolution memory found for <b>${symbol}</b> yet. It will be generated automatically after the next trade cycle.`);
+            }
+            return jsonResponse({ ok: true });
           }
 
 
