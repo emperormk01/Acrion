@@ -32,7 +32,8 @@ async function setWebhook() {
         { command: "amount", description: "Configure trading amounts (Stake, Lots, Leverage)" },
         { command: "report", description: "Fetch the latest trading report" },
         { command: "memory", description: "View the agent's persistent self-evolution memory" },
-        { command: "model", description: "Switch between Poolside and Gemini AI models" }
+        { command: "model", description: "Switch between Poolside and Gemini AI models" },
+        { command: "auto", description: "Setup automated trade scheduling control panel" }
       ]
     })
   });

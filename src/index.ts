@@ -191,7 +191,38 @@ const workerHandler = {
           }
 
           if (command === "/start" || command === "/help") {
-            await sendMessage(chatId, `🤖 <b>Acrion Agent</b>\n\nAvailable commands:\n/status - Get agent status\n/trade - Trigger a manual CFD/Options trade cycle\n/amount - Configure trading amounts\n/report - Fetch the latest trading report\n/memory - View the agent's persistent self-evolution memory\n/model - Configure the AI model`);
+            await sendMessage(chatId, `🤖 <b>Acrion Agent</b>\n\nAvailable commands:\n/status - Get agent status\n/trade - Trigger a manual CFD/Options trade cycle\n/amount - Configure trading amounts\n/report - Fetch the latest trading report\n/memory - View the agent's persistent self-evolution memory\n/model - Configure the AI model\n/auto - Setup automated trade scheduling control panel`);
+            return jsonResponse({ ok: true });
+          }
+
+          if (command === "/auto") {
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const currentInterval = settings.auto_trade_interval || 0;
+            const currentStatus = currentInterval > 0 ? `🟢 Enabled (every ${currentInterval} min)` : "❌ Disabled";
+            const currentSymbol = settings.auto_trade_symbol || "R_100";
+            const currentMode = (settings.auto_trade_mode || "options").toUpperCase();
+
+            let msg = `⏰ <b>Automated Trading Control Panel</b>\n\n`;
+            msg += `• Schedule: <b>${currentStatus}</b>\n`;
+            msg += `• Asset: <b>${currentSymbol}</b>\n`;
+            msg += `• Type: <b>${currentMode}</b>\n\n`;
+            msg += `Configure your automated trading agent using the buttons below:`;
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [
+                  { text: "⏰ Set Interval", callback_data: "auto_menu:interval" },
+                  { text: "💱 Set Asset", callback_data: "auto_menu:symbol" }
+                ],
+                [
+                  { text: "📈 Set Mode (Options/CFD)", callback_data: "auto_menu:mode" },
+                  { text: "❌ Disable Auto-Trade", callback_data: "set_auto:0" }
+                ]
+              ]
+            };
+
+            await sendMessage(chatId, msg, replyMarkup);
             return jsonResponse({ ok: true });
           }
 
@@ -431,6 +462,100 @@ const workerHandler = {
               await answerCallbackQuery(callbackQuery.id, "Trading " + symbol + " (options)");
               await executeTrade(chatId, symbol, "options");
             }
+          } else if (data && data === "auto_menu:interval") {
+            const replyMarkup = {
+              inline_keyboard: [
+                [
+                  { text: "1 Min", callback_data: "set_auto:1" },
+                  { text: "3 Min", callback_data: "set_auto:3" },
+                  { text: "5 Min", callback_data: "set_auto:5" }
+                ],
+                [
+                  { text: "15 Min", callback_data: "set_auto:15" },
+                  { text: "30 Min", callback_data: "set_auto:30" },
+                  { text: "1 Hour", callback_data: "set_auto:60" }
+                ],
+                [
+                  { text: "3 Hours", callback_data: "set_auto:180" },
+                  { text: "6 Hours", callback_data: "set_auto:360" },
+                  { text: "12 Hours", callback_data: "set_auto:720" }
+                ],
+                [{ text: "⬅️ Back to Control Panel", callback_data: "auto_menu:main" }]
+              ]
+            };
+            await sendMessage(chatId, "⏰ <b>Select Auto-Trading Interval:</b>", replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data === "auto_menu:symbol") {
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "Volatility 10 Index", callback_data: "set_auto_symbol:R_10" }, { text: "Volatility 25 Index", callback_data: "set_auto_symbol:R_25" }],
+                [{ text: "Volatility 50 Index", callback_data: "set_auto_symbol:R_50" }, { text: "Volatility 75 Index", callback_data: "set_auto_symbol:R_75" }],
+                [{ text: "Volatility 100 Index", callback_data: "set_auto_symbol:R_100" }],
+                [{ text: "⬅️ Back to Control Panel", callback_data: "auto_menu:main" }]
+              ]
+            };
+            await sendMessage(chatId, "💱 <b>Select Auto-Trading Asset:</b>", replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data === "auto_menu:mode") {
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "📉 CFD Mode", callback_data: "set_auto_mode:cfd" }],
+                [{ text: "📈 Options Mode", callback_data: "set_auto_mode:options" }],
+                [{ text: "⬅️ Back to Control Panel", callback_data: "auto_menu:main" }]
+              ]
+            };
+            await sendMessage(chatId, "📈 <b>Select Auto-Trading Mode:</b>", replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data === "auto_menu:main") {
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const currentInterval = settings.auto_trade_interval || 0;
+            const currentStatus = currentInterval > 0 ? `🟢 Enabled (every ${currentInterval} min)` : "❌ Disabled";
+            const currentSymbol = settings.auto_trade_symbol || "R_100";
+            const currentMode = (settings.auto_trade_mode || "options").toUpperCase();
+
+            let msg = `⏰ <b>Automated Trading Control Panel</b>\n\n`;
+            msg += `• Schedule: <b>${currentStatus}</b>\n`;
+            msg += `• Asset: <b>${currentSymbol}</b>\n`;
+            msg += `• Type: <b>${currentMode}</b>\n\n`;
+            msg += `Configure your automated trading agent using the buttons below:`;
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [
+                  { text: "⏰ Set Interval", callback_data: "auto_menu:interval" },
+                  { text: "💱 Set Asset", callback_data: "auto_menu:symbol" }
+                ],
+                [
+                  { text: "📈 Set Mode (Options/CFD)", callback_data: "auto_menu:mode" },
+                  { text: "❌ Disable Auto-Trade", callback_data: "set_auto:0" }
+                ]
+              ]
+            };
+
+            await sendMessage(chatId, msg, replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data.startsWith("set_auto_symbol:")) {
+            const symbol = data.split(":")[1];
+            await dbHelper.initializeSchema();
+            await dbHelper.updateUserSettings(chatId, "auto_trade_symbol", symbol);
+            await answerCallbackQuery(callbackQuery.id, `Asset set to ${symbol}`);
+            await sendMessage(chatId, `✅ <b>Asset updated successfully!</b>\nAuto-trading asset is now set to <b>${symbol}</b>.`);
+          } else if (data && data.startsWith("set_auto_mode:")) {
+            const mode = data.split(":")[1];
+            await dbHelper.initializeSchema();
+            await dbHelper.updateUserSettings(chatId, "auto_trade_mode", mode);
+            await answerCallbackQuery(callbackQuery.id, `Mode set to ${mode.toUpperCase()}`);
+            await sendMessage(chatId, `✅ <b>Trading Mode updated successfully!</b>\nAuto-trading mode is now set to <b>${mode.toUpperCase()}</b>.`);
+          } else if (data && data.startsWith("set_auto:")) {
+            const interval = parseInt(data.split(":")[1]);
+            await dbHelper.initializeSchema();
+            await dbHelper.updateUserSettings(chatId, "auto_trade_interval", interval);
+            await dbHelper.updateUserSettings(chatId, "last_auto_trade_time", "");
+            
+            const statusText = interval > 0 ? `🟢 enabled for every <b>${interval} minutes</b>` : "❌ disabled";
+            await answerCallbackQuery(callbackQuery.id, `Auto-trade ${interval > 0 ? 'enabled' : 'disabled'}`);
+            await sendMessage(chatId, `⏰ <b>Automated Trading</b> has been ${statusText}.\n\n<i>Note: The background scheduler runs every minute.</i>`);
           } else {
             await answerCallbackQuery(callbackQuery.id);
           }
@@ -772,6 +897,119 @@ ${logs.length > 0 ? logs.map(l => `• ${l}`).join("\n") : "• No logs"}
     } catch (error: any) {
       console.error("Worker error:", error);
       return jsonResponse({ error: `Internal Server Error: ${error.message}` }, 500);
+    }
+  },
+
+  async scheduled(event: any, env: Env, ctx: any): Promise<void> {
+    console.log("Acrion Agent: Scheduled cron trigger fired.");
+    const dbHelper = new DbHelper(env.DB);
+    await dbHelper.initializeSchema();
+
+    let schedulableUsers: any[] = [];
+    try {
+      schedulableUsers = await dbHelper.getAllSchedulableUserSettings();
+    } catch (e) {
+      console.error("Error fetching schedulable users:", e);
+      return;
+    }
+
+    if (schedulableUsers.length === 0) {
+      console.log("Acrion Agent: No users with active automated trading schedules.");
+      return;
+    }
+
+    const telegramToken = env.TELEGRAM_BOT_TOKEN;
+    if (!telegramToken) {
+      console.error("Acrion Agent Scheduled: TELEGRAM_BOT_TOKEN is missing!");
+      return;
+    }
+
+    const now = new Date();
+    const nowTime = now.getTime();
+
+    for (const row of schedulableUsers) {
+      const chatId = row.chat_id;
+      const intervalMinutes = row.auto_trade_interval;
+      if (!intervalMinutes || intervalMinutes <= 0) continue;
+
+      const lastTradeTimeStr = row.last_auto_trade_time;
+      let shouldTrade = false;
+
+      if (!lastTradeTimeStr) {
+        shouldTrade = true;
+      } else {
+        const lastTradeTime = new Date(lastTradeTimeStr).getTime();
+        const diffMs = nowTime - lastTradeTime;
+        const intervalMs = intervalMinutes * 60 * 1000;
+        
+        // Use a 5-second buffer to handle minor invocation timing differences
+        if (diffMs >= (intervalMs - 5000)) {
+          shouldTrade = true;
+        }
+      }
+
+      if (shouldTrade) {
+        console.log(`Acrion Agent: Executing auto-trade cycle for Chat ID: ${chatId} (Interval: ${intervalMinutes}m)`);
+        
+        // Update last trade time immediately to prevent race conditions or duplicate runs
+        await dbHelper.updateUserSettings(chatId, "last_auto_trade_time", now.toISOString());
+
+        const sendMessage = async (msg: string) => {
+          await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: chatId, text: msg, parse_mode: "HTML" })
+          });
+        };
+
+        const mode = row.auto_trade_mode || "options";
+        const symbol = row.auto_trade_symbol || "R_100";
+
+        await sendMessage(`⏳ <b>Scheduled Auto-Trade Triggered</b>\nRunning <b>${mode.toUpperCase()}</b> trade cycle for <b>${symbol}</b>...`);
+
+        const bodyPayload: any = { mode, symbol, chat_id: chatId };
+        if (mode === "options") bodyPayload.stake = row.options_stake || 5;
+        if (mode === "cfd") {
+          bodyPayload.lots = row.cfd_lots || 0.1;
+          bodyPayload.leverage = row.cfd_leverage || 100;
+        }
+
+        try {
+          const tradeReq = new Request("http://localhost/api/trade", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(bodyPayload)
+          });
+
+          // Invoke the main fetch router for the /api/trade endpoint headless execution
+          const tradeRes = await workerHandler.fetch(tradeReq, env, ctx);
+          const tradeData: any = await tradeRes.json();
+
+          if (tradeRes.status === 200 && tradeData.execution) {
+            const exec = tradeData.execution;
+            const dec = tradeData.decision;
+            let msg = `🤖 <b>[Auto] Decision: ${dec.action}</b>\n\n`;
+            msg += `<i>Reasoning:</i> ${dec.reason}\n\n`;
+            if (exec.status === "SUCCESS") {
+              if (mode === "cfd") {
+                const actionVerb = exec.details.direction === "BUY" ? "🟢 Opened Long Position" : "🔴 Opened Short Position";
+                msg += `✅ <b>Execution SUCCESS</b>\n<b>${actionVerb}</b> (lots: ${exec.details.lots})\nEntry Price: $${exec.details.entry_price}\nID: <code>${exec.details.position_id}</code>`;
+              } else {
+                const actionVerb = dec.action === "BUY_CALL" ? "🟢 Purchased CALL Option (Bullish)" : "🔴 Purchased PUT Option (Bearish)";
+                msg += `✅ <b>Execution SUCCESS</b>\n<b>${actionVerb}</b>\nShortcode: <code>${exec.details.shortcode}</code>\nID: <code>${exec.details.contract_id}</code>`;
+              }
+            } else {
+              msg += `⚠️ <b>Execution ${exec.status}</b>`;
+            }
+            await sendMessage(msg);
+          } else {
+            await sendMessage(`❌ <b>Auto-Trade Execution Error:</b> ${tradeData.error || "Unknown error"}`);
+          }
+        } catch (tradeErr: any) {
+          console.error(`Scheduled trade run error for chatId ${chatId}:`, tradeErr);
+          await sendMessage(`❌ <b>Auto-Trade Error:</b> ${tradeErr.message}`);
+        }
+      }
     }
   }
 };

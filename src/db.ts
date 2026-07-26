@@ -120,6 +120,31 @@ export class DbHelper {
     try {
       await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN ai_model TEXT DEFAULT 'poolside/laguna-s-2.1'`).run();
     } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN auto_trade_interval INTEGER DEFAULT 0`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN last_auto_trade_time TEXT`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN auto_trade_symbol TEXT DEFAULT 'R_100'`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN auto_trade_mode TEXT DEFAULT 'options'`).run();
+    } catch (e) {}
+  }
+
+  async getAllSchedulableUserSettings(): Promise<any[]> {
+    if (!this.db) return [];
+    try {
+      const { results } = await this.db.prepare(`
+        SELECT * FROM user_settings WHERE auto_trade_interval > 0
+      `).all();
+      return results || [];
+    } catch (e) {
+      console.error("Error retrieving schedulable user settings:", e);
+      return [];
+    }
   }
 
   async saveTrade(trade: TradeLog): Promise<void> {
