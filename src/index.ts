@@ -521,14 +521,18 @@ const workerHandler = {
         // Fetch remaining/active open CFD positions
         const activeCfdPositions = await dbHelper.getOpenCfdPositions(symbol);
 
-        // Fetch AI Trading Decision from Poolside Laguna-s-2.1
-        console.log(`Analyzing trends with Poolside ${poolsideModel}...`);
+        // Retrieve persistent self-evolution memory from D1 database
+        const currentMemory = await dbHelper.getAgentMemory(symbol);
+
+        // Fetch AI Trading Decision from Poolside/Gemini with injected Memory Heuristics
+        console.log(`Analyzing trends with Poolside/Gemini ${poolsideModel}...`);
         const decision = await poolsideClient.getTradingDecision({
           symbol,
           currentTick,
           ticksHistory,
           balance: accountInfo.balance,
-          portfolioSize: mode === "cfd" ? activeCfdPositions.length : 0
+          portfolioSize: mode === "cfd" ? activeCfdPositions.length : 0,
+          memory: currentMemory
         });
 
         console.log(`AI Decision: ${decision.action} (${decision.reason})`);
@@ -650,6 +654,29 @@ const workerHandler = {
           confidence: decision.confidence,
           status: tradeStatus
         });
+
+        // 🧠 Evolutionary Self-Learning Phase (Up to 3k tokens memory budget)
+        try {
+          console.log("Acrion Agent: Running background evolutionary self-learning analysis...");
+          const recentTrades = await dbHelper.getRecentTrades(10);
+          const recentCfdPositions = await dbHelper.getAllCfdPositions(10);
+          
+          const updatedMemory = await poolsideClient.evolveMemory({
+            symbol,
+            currentMemory,
+            recentTrades,
+            recentCfdPositions,
+            currentTick,
+            ticksHistory
+          });
+
+          if (updatedMemory && updatedMemory.trim() !== "") {
+            await dbHelper.saveAgentMemory(symbol, updatedMemory);
+            console.log("Acrion Agent: Evolved trading memory saved successfully.");
+          }
+        } catch (memError: any) {
+          console.error("Acrion Agent: Evolution learning phase failed:", memError.message);
+        }
 
         // Fetch latest state for reporting
         const latestOpenCfdPositions = await dbHelper.getOpenCfdPositions(symbol);

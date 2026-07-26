@@ -31,10 +31,12 @@ export class PoolsideClient {
     ticksHistory: number[];
     balance: number;
     portfolioSize: number;
+    memory?: string;
   }): Promise<TradeDecision> {
     const systemPrompt = `You are a high-frequency algorithmic AI Trading Agent specializing in Deriv synthetic indices (e.g., Volatility 100 Index).
     Analyze the provided market context and determine whether to buy a CALL contract, a PUT contract, or HOLD.
-    Your decision must be returned strictly as a JSON object matching the requested schema.`;
+    Your decision must be returned strictly as a JSON object matching the requested schema.
+    Ensure you strictly adhere to any "LEARNED TRADING INSIGHTS & MEMORY" provided in the prompt to avoid repeating past mistakes.`;
 
     const userPrompt = `Market Context:
 - Symbol: ${marketContext.symbol}
@@ -42,6 +44,7 @@ export class PoolsideClient {
 - Recent Ticks (last 10 ticks, oldest to newest): ${JSON.stringify(marketContext.ticksHistory)}
 - Available Balance: $${marketContext.balance}
 - Current Open Portfolio Size: ${marketContext.portfolioSize}
+${marketContext.memory ? `\n=== LEARNED TRADING INSIGHTS & MEMORY ===\n${marketContext.memory}\n` : ""}
 
 Analyze the micro-trend and make your trade decision immediately. Ensure amount is proportional (default to 1.0 or 2% of balance, whichever is safe).`;
 
@@ -182,6 +185,65 @@ JSON Schema:
         symbol: marketContext.symbol,
         amount: 0
       };
+    }
+  }
+
+  async evolveMemory(params: {
+    symbol: string;
+    currentMemory: string;
+    recentTrades: any[];
+    recentCfdPositions: any[];
+    currentTick: number;
+    ticksHistory: number[];
+  }): Promise<string> {
+    const systemPrompt = `You are the Core Strategic Evolutionary Engine for Acrion Agent.
+Your job is to analyze the recent performance of the agent, identify successful strategies, pinpoint mistakes (e.g., false signals, bad entry timing, holding positions too long, getting stopped out), and update the persistent 'Trading Lessons & Micro-heuristics' memory.
+Your output must be the updated Lessons and Micro-heuristics text.
+DO NOT output any introductory text, markdown wrappers, or explanations. Return ONLY the raw updated lessons and guidelines text.
+Target word budget: ~1500 to 2500 words. Keep it incredibly dense, structured, actionable, and analytical. Focus on market structure, momentum, and statistical tick behavior. Avoid fluff and corporate jargon. Ensure it is less than 3,000 tokens.`;
+
+    const userPrompt = `Current Symbol: ${params.symbol}
+Current Tick Price: ${params.currentTick}
+Recent Tick Trend: ${JSON.stringify(params.ticksHistory)}
+
+=== EXISTING MEMORY / RULES ===
+${params.currentMemory || "None - Initial state."}
+
+=== RECENT TRADE LEDGER ===
+${JSON.stringify(params.recentTrades)}
+
+=== RECENT CFD POSITIONS OUTCOMES ===
+${JSON.stringify(params.recentCfdPositions)}
+
+Analyze the outcomes. Check which trades succeeded (profitable or correct trend prediction) and which failed (loss or stopped out).
+Refine the existing trading rules and lessons. Expand on subtle trend indicators, momentum traps, or risk management tips.
+Maintain or prune existing memory to keep it extremely dense, actionable, and under the 3,000 tokens limit.
+Return the complete updated 'Lessons & Micro-heuristics' text now.`;
+
+    try {
+      const apiKeyToUse = this.geminiApiKey || process.env.GEMINI_API_KEY || "";
+      const ai = new GoogleGenAI({
+        apiKey: apiKeyToUse,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash-lite",
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.2,
+          maxOutputTokens: 4096
+        }
+      });
+
+      return response.text?.trim() || "";
+    } catch (e: any) {
+      console.error("Evolution memory phase failed:", e.message);
+      return "";
     }
   }
 }

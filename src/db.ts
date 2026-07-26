@@ -105,6 +105,15 @@ export class DbHelper {
       )
     `).run();
 
+    // Evolutionary agent self-learning memory
+    await this.db.prepare(`
+      CREATE TABLE IF NOT EXISTS agent_memory (
+        symbol TEXT PRIMARY KEY,
+        memory_text TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `).run();
+
     try {
       await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN ai_provider TEXT DEFAULT 'poolside'`).run();
     } catch (e) {}
@@ -278,5 +287,32 @@ export class DbHelper {
     `).bind(limit).all();
 
     return results as TradeLog[];
+  }
+
+  async getAgentMemory(symbol: string): Promise<string> {
+    if (!this.db) return "";
+    try {
+      const { results } = await this.db.prepare(`
+        SELECT memory_text FROM agent_memory WHERE symbol = ?
+      `).bind(symbol).all();
+      return results.length > 0 ? (results[0] as any).memory_text : "";
+    } catch (e) {
+      console.error("Error retrieving agent memory:", e);
+      return "";
+    }
+  }
+
+  async saveAgentMemory(symbol: string, memoryText: string): Promise<void> {
+    if (!this.db) return;
+    try {
+      const updatedAt = new Date().toISOString();
+      await this.db.prepare(`
+        INSERT INTO agent_memory (symbol, memory_text, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(symbol) DO UPDATE SET memory_text = excluded.memory_text, updated_at = excluded.updated_at
+      `).bind(symbol, memoryText, updatedAt).run();
+    } catch (e) {
+      console.error("Error saving agent memory:", e);
+    }
   }
 }
