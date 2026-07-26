@@ -1,0 +1,6 @@
+{
+  "name": "Deriv AI Options Trading Agent",
+  "description": "Full-stack AI-driven Options trading agent utilizing Poolside Laguna for trend analysis and automated trading via the Deriv Options REST & WebSocket APIs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

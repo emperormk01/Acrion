@@ -1,0 +1,20 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+wrangler.toml
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+
+# temporary/orchestration scripts
+fix_*.ts
+update_*.ts
+*.zip
+.test_*.ts
