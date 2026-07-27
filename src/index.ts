@@ -590,11 +590,19 @@ const workerHandler = {
             let paramName = param === "options_stake" ? "Options Stake" : (param === "cfd_lots" ? "CFD Lots" : "CFD Leverage");
             let displayValue = param === "options_stake" ? `${value}` : (param === "cfd_leverage" ? `${value}x` : `${value}`);
             
-            await sendMessage(chatId, `✅ <b>${paramName} updated successfully to ${displayValue}!</b>`);
-            await answerCallbackQuery(callbackQuery.id, `Saved ${paramName}: ${displayValue}`);
+            await answerCallbackQuery(callbackQuery.id, `✅ Saved ${paramName}: ${displayValue}`);
+            
+            // Go back to amount menu automatically
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "💵 Options Stake", callback_data: "set_amount:options_stake" }],
+                [{ text: "📦 CFD Lots", callback_data: "set_amount:cfd_lots" }],
+                [{ text: "⚖️ CFD Leverage", callback_data: "set_amount:cfd_leverage" }],
+                [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
+              ]
+            };
+            await editMessage(chatId, callbackQuery.message.message_id, `✅ <b>${paramName} updated to ${displayValue}</b>\n\n💰 <b>Configure Trading Limits:</b>`, replyMarkup);
             return jsonResponse({ ok: true });
-
-          
           } else if (data && data.startsWith("set_model:")) {
             const parts = data.split(":");
             const provider = parts[1];
@@ -605,7 +613,27 @@ const workerHandler = {
             await dbHelper.updateUserSettings(chatId, "ai_model", modelName);
             
             await answerCallbackQuery(callbackQuery.id, "✅ Model updated");
-            await sendMessage(chatId, `🤖 AI Model successfully switched to <b>${provider.toUpperCase()} (${modelName})</b>.`);
+
+            // Go back to settings menu
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const accountType = settings.deriv_account_type || 'demo';
+            
+            let msg = `✅ <b>AI Model updated to ${modelName}</b>\n\n`;
+            msg += `⚙️ <b>Acrion Settings</b>\n\n`;
+            msg += `• Account Type: <b>${accountType.toUpperCase()}</b>\n`;
+            msg += `• AI Provider: <b>${provider.toUpperCase()}</b>\n`;
+            msg += `• Model: <code>${modelName}</code>\n\n`;
+            msg += `Manage your preferences below:`;
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: `🔄 Switch to ${accountType === 'demo' ? 'REAL' : 'DEMO'} Account`, callback_data: `settings:toggle_account` }],
+                [{ text: "🤖 AI Model Configuration", callback_data: "settings:ai_menu" }],
+                [{ text: "💰 Trading Limits", callback_data: "amount_menu" }]
+              ]
+            };
+
+            await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
             return jsonResponse({ ok: true });
           } else if (data && data.startsWith("select_symbol:")) {
             const mode = data.split(":")[1];

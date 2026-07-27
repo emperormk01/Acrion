@@ -30,6 +30,7 @@ async function setWebhook() {
         { command: "status", description: "Get agent status & active positions" },
         { command: "trade", description: "Trigger a manual CFD/Options trade cycle" },
         { command: "amount", description: "Configure trading amounts (Stake, Lots, Leverage)" },
+        { command: "settings", description: "Manage account type (Demo/Real) and AI settings" },
         { command: "report", description: "Fetch the latest trading report" },
         { command: "memory", description: "View the agent's persistent self-evolution memory" },
         { command: "model", description: "Switch between Poolside and Gemini AI models" },
