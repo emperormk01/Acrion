@@ -137,6 +137,18 @@ const workerHandler = {
           });
         };
 
+        const editMessage = async (chatId: number, messageId: number, msg: string, replyMarkup?: any) => {
+          const body: any = { chat_id: chatId, message_id: messageId, text: msg, parse_mode: "HTML" };
+          if (replyMarkup) {
+            body.reply_markup = replyMarkup;
+          }
+          await fetch(`https://api.telegram.org/bot${telegramToken}/editMessageText`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+        };
+
         const executeTrade = async (chatId: number, symbol: string, mode: string = "options") => {
           await sendMessage(chatId, `⏳ Initiating ${mode === "options" ? "Options" : "CFD"} trade cycle for <b>${symbol}</b>...`);
           
@@ -523,7 +535,7 @@ const workerHandler = {
                 [{ text: "💰 Trading Limits", callback_data: "amount_menu" }]
               ]
             };
-            await sendMessage(chatId, msg, replyMarkup);
+            await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
           } else if (data && data === "settings:main") {
             await dbHelper.initializeSchema();
             const settings = await dbHelper.getUserSettings(chatId) || {};
@@ -543,7 +555,7 @@ const workerHandler = {
               ]
             };
 
-            await sendMessage(chatId, msg, replyMarkup);
+            await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
             await answerCallbackQuery(callbackQuery.id);
           } else if (data && data === "settings:ai_menu") {
             const replyMarkup = {
@@ -554,7 +566,7 @@ const workerHandler = {
                 [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
               ]
             };
-            await sendMessage(chatId, "🤖 <b>Select AI Model:</b>", replyMarkup);
+            await editMessage(chatId, callbackQuery.message.message_id, "🤖 <b>Select AI Model:</b>", replyMarkup);
             await answerCallbackQuery(callbackQuery.id);
           } else if (data && data === "amount_menu") {
             const replyMarkup = {
@@ -565,7 +577,7 @@ const workerHandler = {
                 [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
               ]
             };
-            await sendMessage(chatId, "💰 <b>Configure Trading Limits:</b>", replyMarkup);
+            await editMessage(chatId, callbackQuery.message.message_id, "💰 <b>Configure Trading Limits:</b>", replyMarkup);
             await answerCallbackQuery(callbackQuery.id);
           } else if (data && data.startsWith("save_amount:")) {
             const parts = data.split(":");
@@ -797,7 +809,9 @@ const workerHandler = {
         }
 
         // Initialize Clients with fallbacks to user-specific token, then env, then default
-        const derivToken = settings.deriv_token || env.DERIV_TOKEN || process.env.DERIV_TOKEN || "pat_48a3740b33a183cf5f7598039d270871ab2239c00b9e7eb0a00a4b5b2f522d78";
+        const accountType = settings.deriv_account_type || 'demo';
+        const userToken = accountType === 'real' ? settings.deriv_token_real : (settings.deriv_token_demo || settings.deriv_token);
+        const derivToken = userToken || env.DERIV_TOKEN || process.env.DERIV_TOKEN || "pat_48a3740b33a183cf5f7598039d270871ab2239c00b9e7eb0a00a4b5b2f522d78";
         const derivClient = new DerivClient(
           derivToken,
           body.app_id || "33VKvdJA8yrAFlw0tC9Fn"
