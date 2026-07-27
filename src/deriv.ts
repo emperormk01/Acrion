@@ -94,15 +94,21 @@ export class DerivClient {
     this.wsUrl = wsUrl;
 
     return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("Deriv WebSocket connection timed out (15s)"));
+      }, 15000);
+
       try {
         // In CF Workers/modern Node, use global WebSocket
         this.ws = new WebSocket(this.wsUrl!);
 
         this.ws.onopen = () => {
+          clearTimeout(timeout);
           resolve();
         };
 
         this.ws.onerror = (err) => {
+          clearTimeout(timeout);
           reject(new Error(`WebSocket connection failed: ${JSON.stringify(err)}`));
         };
 
@@ -157,7 +163,21 @@ export class DerivClient {
       const reqId = this.reqIdCounter++;
       const fullPayload = { ...payload, req_id: reqId };
       
-      this.pendingRequests.set(reqId, { resolve, reject });
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(reqId);
+        reject(new Error(`Deriv request ${reqId} timed out after 10s`));
+      }, 10000);
+
+      this.pendingRequests.set(reqId, { 
+        resolve: (data) => {
+          clearTimeout(timeout);
+          resolve(data);
+        }, 
+        reject: (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        } 
+      });
       this.ws.send(JSON.stringify(fullPayload));
     });
   }

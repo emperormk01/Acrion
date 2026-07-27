@@ -175,6 +175,9 @@ const workerHandler = {
             } else {
               msg += `⚠️ <b>Execution ${exec.status}</b>`;
             }
+            if (tradeData.smart_routing_switched) {
+              msg += `\n\n🔀 <b>Smart Routing Triggered</b>\nThe agent decided to <b>HOLD</b> on <b>${tradeData.original_symbol}</b> 3 times in a row.\nAutomatically switched active auto-trading pair to <b>${tradeData.next_symbol}</b> to find more active setups!`;
+            }
             await sendMessage(chatId, msg);
           } else {
             await sendMessage(chatId, `❌ Error executing trade: ${tradeData.error || 'Unknown error'}`);
@@ -202,11 +205,13 @@ const workerHandler = {
             const currentStatus = currentInterval > 0 ? `🟢 Enabled (every ${currentInterval} min)` : "❌ Disabled";
             const currentSymbol = settings.auto_trade_symbol || "R_100";
             const currentMode = (settings.auto_trade_mode || "options").toUpperCase();
+            const smartRoutingStatus = settings.smart_routing === 1 ? "🟢 Enabled" : "❌ Disabled";
 
             let msg = `⏰ <b>Automated Trading Control Panel</b>\n\n`;
             msg += `• Schedule: <b>${currentStatus}</b>\n`;
             msg += `• Asset: <b>${currentSymbol}</b>\n`;
-            msg += `• Type: <b>${currentMode}</b>\n\n`;
+            msg += `• Type: <b>${currentMode}</b>\n`;
+            msg += `• Smart Routing: <b>${smartRoutingStatus}</b>\n\n`;
             msg += `Configure your automated trading agent using the buttons below:`;
 
             const replyMarkup = {
@@ -218,6 +223,9 @@ const workerHandler = {
                 [
                   { text: "📈 Set Mode (Options/CFD)", callback_data: "auto_menu:mode" },
                   { text: "❌ Disable Auto-Trade", callback_data: "set_auto:0" }
+                ],
+                [
+                  { text: settings.smart_routing === 1 ? "🔀 Disable Smart Routing" : "🔀 Enable Smart Routing", callback_data: "auto_menu:toggle_smart_routing" }
                 ]
               ]
             };
@@ -513,11 +521,13 @@ const workerHandler = {
             const currentStatus = currentInterval > 0 ? `🟢 Enabled (every ${currentInterval} min)` : "❌ Disabled";
             const currentSymbol = settings.auto_trade_symbol || "R_100";
             const currentMode = (settings.auto_trade_mode || "options").toUpperCase();
+            const smartRoutingStatus = settings.smart_routing === 1 ? "🟢 Enabled" : "❌ Disabled";
 
             let msg = `⏰ <b>Automated Trading Control Panel</b>\n\n`;
             msg += `• Schedule: <b>${currentStatus}</b>\n`;
             msg += `• Asset: <b>${currentSymbol}</b>\n`;
-            msg += `• Type: <b>${currentMode}</b>\n\n`;
+            msg += `• Type: <b>${currentMode}</b>\n`;
+            msg += `• Smart Routing: <b>${smartRoutingStatus}</b>\n\n`;
             msg += `Configure your automated trading agent using the buttons below:`;
 
             const replyMarkup = {
@@ -529,12 +539,52 @@ const workerHandler = {
                 [
                   { text: "📈 Set Mode (Options/CFD)", callback_data: "auto_menu:mode" },
                   { text: "❌ Disable Auto-Trade", callback_data: "set_auto:0" }
+                ],
+                [
+                  { text: settings.smart_routing === 1 ? "🔀 Disable Smart Routing" : "🔀 Enable Smart Routing", callback_data: "auto_menu:toggle_smart_routing" }
                 ]
               ]
             };
 
             await sendMessage(chatId, msg, replyMarkup);
             await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data === "auto_menu:toggle_smart_routing") {
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const newStatus = settings.smart_routing === 1 ? 0 : 1;
+            await dbHelper.updateUserSettings(chatId, "smart_routing", newStatus);
+            
+            await answerCallbackQuery(callbackQuery.id, `Smart Routing ${newStatus === 1 ? "Enabled" : "Disabled"}`);
+            
+            const currentInterval = settings.auto_trade_interval || 0;
+            const currentStatus = currentInterval > 0 ? `🟢 Enabled (every ${currentInterval} min)` : "❌ Disabled";
+            const currentSymbol = settings.auto_trade_symbol || "R_100";
+            const currentMode = (settings.auto_trade_mode || "options").toUpperCase();
+            const smartRoutingStatus = newStatus === 1 ? "🟢 Enabled" : "❌ Disabled";
+
+            let msg = `⏰ <b>Automated Trading Control Panel</b>\n\n`;
+            msg += `• Schedule: <b>${currentStatus}</b>\n`;
+            msg += `• Asset: <b>${currentSymbol}</b>\n`;
+            msg += `• Type: <b>${currentMode}</b>\n`;
+            msg += `• Smart Routing: <b>${smartRoutingStatus}</b>\n\n`;
+            msg += `Configure your automated trading agent using the buttons below:`;
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [
+                  { text: "⏰ Set Interval", callback_data: "auto_menu:interval" },
+                  { text: "💱 Set Asset", callback_data: "auto_menu:symbol" }
+                ],
+                [
+                  { text: "📈 Set Mode (Options/CFD)", callback_data: "auto_menu:mode" },
+                  { text: "❌ Disable Auto-Trade", callback_data: "set_auto:0" }
+                ],
+                [
+                  { text: newStatus === 1 ? "🔀 Disable Smart Routing" : "🔀 Enable Smart Routing", callback_data: "auto_menu:toggle_smart_routing" }
+                ]
+              ]
+            };
+            await sendMessage(chatId, msg, replyMarkup);
           } else if (data && data.startsWith("set_auto_symbol:")) {
             const symbol = data.split(":")[1];
             await dbHelper.initializeSchema();
@@ -639,11 +689,13 @@ const workerHandler = {
           await dbHelper.saveDecisionTick(symbol, currentTick);
 
         } catch (e: any) {
+          console.error("Deriv API Initialization Error:", e.message);
           derivClient.disconnect();
           return jsonResponse({ error: `Deriv API Initialization Error: ${e.message}` }, 500);
         }
 
-        let logs: string[] = [];
+        try {
+          let logs: string[] = [];
 
         // 1. If we are in CFD mode, simulate live tick updates for all active CFD positions
         if (mode === "cfd") {
@@ -806,8 +858,6 @@ const workerHandler = {
           }
         }
 
-        derivClient.disconnect();
-
         const timestampStr = new Date().toISOString();
 
         // Save trade execution log to D1 Database
@@ -822,6 +872,32 @@ const workerHandler = {
           confidence: decision.confidence,
           status: tradeStatus
         });
+
+        // Check Smart Routing (3 consecutive HOLDS switch asset)
+        let smartRoutingSwitched = false;
+        let originalSymbol = symbol;
+        let nextSymbol = symbol;
+        if (decision.action === "HOLD" && settings.smart_routing === 1 && chatId) {
+          try {
+            const results = await dbHelper.getRecentTradesForSymbol(symbol, 3);
+            
+            if (results && results.length >= 3 && results.every((r: any) => r.action === "HOLD")) {
+              const AVAILABLE_SYMBOLS = ["R_10", "R_25", "R_50", "R_75", "R_100"];
+              const currentIndex = AVAILABLE_SYMBOLS.indexOf(symbol);
+              if (currentIndex !== -1) {
+                const nextIndex = (currentIndex + 1) % AVAILABLE_SYMBOLS.length;
+                nextSymbol = AVAILABLE_SYMBOLS[nextIndex];
+                
+                await dbHelper.updateUserSettings(chatId, "auto_trade_symbol", nextSymbol);
+                smartRoutingSwitched = true;
+                logs.push(`Smart Routing: Automatically switched active symbol from ${symbol} to ${nextSymbol} after 3 consecutive HOLDS.`);
+                console.log(`Smart Routing: Switched active symbol from ${symbol} to ${nextSymbol} for Chat ID: ${chatId}`);
+              }
+            }
+          } catch (srError: any) {
+            console.error("Smart Routing check failed:", srError);
+          }
+        }
 
         // 🧠 Evolutionary Self-Learning Phase (Up to 3k tokens memory budget)
         try {
@@ -888,9 +964,18 @@ ${logs.length > 0 ? logs.map(l => `• ${l}`).join("\n") : "• No logs"}
             status: tradeStatus,
             details: executionDetails,
             logs
-          }
+          },
+          smart_routing_switched: smartRoutingSwitched,
+          original_symbol: originalSymbol,
+          next_symbol: nextSymbol
         });
+      } catch (tradeError: any) {
+        console.error("Trade logic error:", tradeError);
+        return jsonResponse({ error: `Trade Logic Error: ${tradeError.message}` }, 500);
+      } finally {
+        derivClient.disconnect();
       }
+    }
 
       return jsonResponse({ error: "Endpoint not found" }, 404);
 
@@ -1000,6 +1085,9 @@ ${logs.length > 0 ? logs.map(l => `• ${l}`).join("\n") : "• No logs"}
               }
             } else {
               msg += `⚠️ <b>Execution ${exec.status}</b>`;
+            }
+            if (tradeData.smart_routing_switched) {
+              msg += `\n\n🔀 <b>Smart Routing Triggered</b>\nThe agent decided to <b>HOLD</b> on <b>${tradeData.original_symbol}</b> 3 times in a row.\nAutomatically switched active auto-trading pair to <b>${tradeData.next_symbol}</b> to find more active setups!`;
             }
             await sendMessage(msg);
           } else {

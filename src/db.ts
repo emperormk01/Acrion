@@ -132,6 +132,9 @@ export class DbHelper {
     try {
       await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN auto_trade_mode TEXT DEFAULT 'options'`).run();
     } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN smart_routing INTEGER DEFAULT 0`).run();
+    } catch (e) {}
   }
 
   async getAllSchedulableUserSettings(): Promise<any[]> {
@@ -167,6 +170,19 @@ export class DbHelper {
       trade.confidence,
       trade.status
     ).run();
+  }
+
+  async getRecentTradesForSymbol(symbol: string, limit: number = 3): Promise<any[]> {
+    if (!this.db) return [];
+    try {
+      const { results } = await this.db.prepare(
+        `SELECT action FROM trades WHERE symbol = ? ORDER BY id DESC LIMIT ?`
+      ).bind(symbol, limit).all();
+      return results || [];
+    } catch (e) {
+      console.error(`Error fetching recent trades for symbol ${symbol}:`, e);
+      return [];
+    }
   }
 
   async openCfdPosition(pos: CfdPosition): Promise<number> {
