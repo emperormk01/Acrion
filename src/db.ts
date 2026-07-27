@@ -43,6 +43,7 @@ export class DbHelper {
     await this.db.prepare(`
       CREATE TABLE IF NOT EXISTS trades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT,
         symbol TEXT NOT NULL,
         contract_id INTEGER,
         action TEXT NOT NULL,
@@ -59,6 +60,7 @@ export class DbHelper {
     await this.db.prepare(`
       CREATE TABLE IF NOT EXISTS cfd_positions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT,
         symbol TEXT NOT NULL,
         direction TEXT NOT NULL,
         lots REAL NOT NULL,
@@ -80,6 +82,7 @@ export class DbHelper {
     await this.db.prepare(`
       CREATE TABLE IF NOT EXISTS decision_ticks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT,
         symbol TEXT NOT NULL,
         tick_price REAL NOT NULL,
         timestamp TEXT NOT NULL
@@ -90,6 +93,7 @@ export class DbHelper {
     await this.db.prepare(`
       CREATE TABLE IF NOT EXISTS user_settings (
         chat_id TEXT PRIMARY KEY,
+        deriv_token TEXT,
         options_stake REAL,
         cfd_lots REAL,
         cfd_leverage REAL
@@ -100,6 +104,7 @@ export class DbHelper {
     await this.db.prepare(`
       CREATE TABLE IF NOT EXISTS trading_reports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT,
         report_text TEXT NOT NULL,
         created_at TEXT NOT NULL
       )
@@ -108,12 +113,29 @@ export class DbHelper {
     // Evolutionary agent self-learning memory
     await this.db.prepare(`
       CREATE TABLE IF NOT EXISTS agent_memory (
-        symbol TEXT PRIMARY KEY,
+        chat_id TEXT,
+        symbol TEXT,
         memory_text TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (chat_id, symbol)
       )
     `).run();
 
+    try {
+      await this.db.prepare(`ALTER TABLE trades ADD COLUMN chat_id TEXT`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE cfd_positions ADD COLUMN chat_id TEXT`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE decision_ticks ADD COLUMN chat_id TEXT`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE trading_reports ADD COLUMN chat_id TEXT`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN deriv_token TEXT`).run();
+    } catch (e) {}
     try {
       await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN ai_provider TEXT DEFAULT 'poolside'`).run();
     } catch (e) {}
@@ -150,16 +172,17 @@ export class DbHelper {
     }
   }
 
-  async saveTrade(trade: TradeLog): Promise<void> {
+  async saveTrade(trade: TradeLog, chatId?: string | number): Promise<void> {
     if (!this.db) {
       console.log("Mock Database Save Trade:", JSON.stringify(trade, null, 2));
       return;
     }
 
     await this.db.prepare(`
-      INSERT INTO trades (symbol, contract_id, action, amount, purchase_price, timestamp, decision_reason, confidence, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO trades (chat_id, symbol, contract_id, action, amount, purchase_price, timestamp, decision_reason, confidence, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
+      chatId?.toString(),
       trade.symbol,
       trade.contract_id,
       trade.action,
@@ -172,12 +195,12 @@ export class DbHelper {
     ).run();
   }
 
-  async getRecentTradesForSymbol(symbol: string, limit: number = 3): Promise<any[]> {
+  async getRecentTradesForSymbol(symbol: string, limit: number = 3, chatId?: string | number): Promise<any[]> {
     if (!this.db) return [];
     try {
       const { results } = await this.db.prepare(
-        `SELECT action FROM trades WHERE symbol = ? ORDER BY id DESC LIMIT ?`
-      ).bind(symbol, limit).all();
+        `SELECT action FROM trades WHERE symbol = ? ${chatId ? 'AND chat_id = ?' : ''} ORDER BY id DESC LIMIT ?`
+      ).bind(...(chatId ? [symbol, chatId.toString(), limit] : [symbol, limit])).all();
       return results || [];
     } catch (e) {
       console.error(`Error fetching recent trades for symbol ${symbol}:`, e);
@@ -185,16 +208,17 @@ export class DbHelper {
     }
   }
 
-  async openCfdPosition(pos: CfdPosition): Promise<number> {
+  async openCfdPosition(pos: CfdPosition, chatId?: string | number): Promise<number> {
     if (!this.db) {
       console.log("Mock Database Open CFD Position:", JSON.stringify(pos, null, 2));
       return Math.floor(Math.random() * 1000000);
     }
 
     const result = await this.db.prepare(`
-      INSERT INTO cfd_positions (symbol, direction, lots, entry_price, current_price, sl, tp, leverage, margin, floating_pl, open_time, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO cfd_positions (chat_id, symbol, direction, lots, entry_price, current_price, sl, tp, leverage, margin, floating_pl, open_time, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
+      chatId?.toString(),
       pos.symbol,
       pos.direction,
       pos.lots,
@@ -212,32 +236,42 @@ export class DbHelper {
     return result.meta?.last_row_id || Math.floor(Math.random() * 1000000);
   }
 
-  async getOpenCfdPositions(symbol?: string): Promise<CfdPosition[]> {
+  async getOpenCfdPositions(symbol?: string, chatId?: string | number): Promise<CfdPosition[]> {
     if (!this.db) {
       return [];
     }
 
     let query = "SELECT * FROM cfd_positions WHERE status = 'OPEN'";
-    let stmt;
+    const params: any[] = [];
+    
+    if (chatId) {
+      query += " AND chat_id = ?";
+      params.push(chatId.toString());
+    }
+    
     if (symbol) {
       query += " AND symbol = ?";
-      stmt = this.db.prepare(query).bind(symbol);
-    } else {
-      stmt = this.db.prepare(query);
+      params.push(symbol);
     }
+
+    const stmt = this.db.prepare(query).bind(...params);
 
     const { results } = await stmt.all();
     return results as CfdPosition[];
   }
 
-  async getAllCfdPositions(limit: number = 50): Promise<CfdPosition[]> {
+  async getAllCfdPositions(limit: number = 50, chatId?: string | number): Promise<CfdPosition[]> {
     if (!this.db) {
       return [];
     }
 
-    const { results } = await this.db.prepare(`
-      SELECT * FROM cfd_positions ORDER BY id DESC LIMIT ?
-    `).bind(limit).all();
+    const query = chatId 
+      ? `SELECT * FROM cfd_positions WHERE chat_id = ? ORDER BY id DESC LIMIT ?`
+      : `SELECT * FROM cfd_positions ORDER BY id DESC LIMIT ?`;
+    
+    const params = chatId ? [chatId.toString(), limit] : [limit];
+
+    const { results } = await this.db.prepare(query).bind(...params).all();
 
     return results as CfdPosition[];
   }
@@ -272,16 +306,17 @@ export class DbHelper {
     `).bind(closePrice, closePrice, closeTime, status, closePrice, closePrice, id).run();
   }
 
-  async saveDecisionTick(symbol: string, price: number): Promise<void> {
+  async saveDecisionTick(symbol: string, price: number, chatId?: string | number): Promise<void> {
     if (!this.db) {
       console.log(`Mock Database Save Tick: ${symbol} @ $${price}`);
       return;
     }
 
     await this.db.prepare(`
-      INSERT INTO decision_ticks (symbol, tick_price, timestamp)
-      VALUES (?, ?, ?)
+      INSERT INTO decision_ticks (chat_id, symbol, tick_price, timestamp)
+      VALUES (?, ?, ?, ?)
     `).bind(
+      chatId?.toString(),
       symbol,
       price,
       new Date().toISOString()
@@ -290,15 +325,19 @@ export class DbHelper {
 
   
   
-  async saveReport(reportText: string): Promise<void> {
+  async saveReport(reportText: string, chatId?: string | number): Promise<void> {
     if (!this.db) return;
-    await this.db.prepare(`INSERT INTO trading_reports (report_text, created_at) VALUES (?, ?)`)
-      .bind(reportText, new Date().toISOString()).run();
+    await this.db.prepare(`INSERT INTO trading_reports (chat_id, report_text, created_at) VALUES (?, ?, ?)`)
+      .bind(chatId?.toString(), reportText, new Date().toISOString()).run();
   }
 
-  async getLatestReport(): Promise<string | null> {
+  async getLatestReport(chatId?: string | number): Promise<string | null> {
     if (!this.db) return null;
-    const { results } = await this.db.prepare(`SELECT report_text FROM trading_reports ORDER BY id DESC LIMIT 1`).all();
+    const query = chatId 
+      ? `SELECT report_text FROM trading_reports WHERE chat_id = ? ORDER BY id DESC LIMIT 1`
+      : `SELECT report_text FROM trading_reports ORDER BY id DESC LIMIT 1`;
+    const params = chatId ? [chatId.toString()] : [];
+    const { results } = await this.db.prepare(query).bind(...params).all();
     return results.length > 0 ? results[0].report_text : null;
   }
 
@@ -318,24 +357,31 @@ export class DbHelper {
     }
   }
 
-  async getRecentTrades(limit: number = 20): Promise<TradeLog[]> {
+  async getRecentTrades(limit: number = 20, chatId?: string | number): Promise<TradeLog[]> {
     if (!this.db) {
       return [];
     }
 
-    const { results } = await this.db.prepare(`
-      SELECT * FROM trades ORDER BY id DESC LIMIT ?
-    `).bind(limit).all();
+    const query = chatId 
+      ? `SELECT * FROM trades WHERE chat_id = ? ORDER BY id DESC LIMIT ?`
+      : `SELECT * FROM trades ORDER BY id DESC LIMIT ?`;
+    
+    const params = chatId ? [chatId.toString(), limit] : [limit];
+
+    const { results } = await this.db.prepare(query).bind(...params).all();
 
     return results as TradeLog[];
   }
 
-  async getAgentMemory(symbol: string): Promise<string> {
+  async getAgentMemory(symbol: string, chatId?: string | number): Promise<string> {
     if (!this.db) return "";
     try {
-      const { results } = await this.db.prepare(`
-        SELECT memory_text FROM agent_memory WHERE symbol = ?
-      `).bind(symbol).all();
+      const query = chatId 
+        ? `SELECT memory_text FROM agent_memory WHERE symbol = ? AND chat_id = ?`
+        : `SELECT memory_text FROM agent_memory WHERE symbol = ?`;
+      const params = chatId ? [symbol, chatId.toString()] : [symbol];
+      
+      const { results } = await this.db.prepare(query).bind(...params).all();
       return results.length > 0 ? (results[0] as any).memory_text : "";
     } catch (e) {
       console.error("Error retrieving agent memory:", e);
@@ -343,15 +389,15 @@ export class DbHelper {
     }
   }
 
-  async saveAgentMemory(symbol: string, memoryText: string): Promise<void> {
+  async saveAgentMemory(symbol: string, memoryText: string, chatId?: string | number): Promise<void> {
     if (!this.db) return;
     try {
       const updatedAt = new Date().toISOString();
       await this.db.prepare(`
-        INSERT INTO agent_memory (symbol, memory_text, updated_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(symbol) DO UPDATE SET memory_text = excluded.memory_text, updated_at = excluded.updated_at
-      `).bind(symbol, memoryText, updatedAt).run();
+        INSERT INTO agent_memory (chat_id, symbol, memory_text, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(chat_id, symbol) DO UPDATE SET memory_text = excluded.memory_text, updated_at = excluded.updated_at
+      `).bind(chatId?.toString() || "default", symbol, memoryText, updatedAt).run();
     } catch (e) {
       console.error("Error saving agent memory:", e);
     }

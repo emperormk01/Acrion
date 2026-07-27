@@ -194,7 +194,52 @@ const workerHandler = {
           }
 
           if (command === "/start" || command === "/help") {
-            await sendMessage(chatId, `🤖 <b>Acrion Agent</b>\n\nAvailable commands:\n/status - Get agent status\n/trade - Trigger a manual CFD/Options trade cycle\n/amount - Configure trading amounts\n/report - Fetch the latest trading report\n/memory - View the agent's persistent self-evolution memory\n/model - Configure the AI model\n/auto - Setup automated trade scheduling control panel`);
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId);
+            
+            let welcomeMsg = `🤖 <b>Welcome to Acrion Agent</b>\n\n`;
+            welcomeMsg += `I am an evolutionary AI trading agent powered by Poolside and Gemini. I can trade Options and CFD assets on Deriv automatically for you.\n\n`;
+            
+            if (!settings || !settings.deriv_token) {
+              welcomeMsg += `⚠️ <b>Action Required:</b> To start trading, you must provide your Deriv API Token.\n\n`;
+              welcomeMsg += `1. Go to Deriv Settings > API Token\n`;
+              welcomeMsg += `2. Create a token with 'Trade' and 'Read' scopes\n`;
+              welcomeMsg += `3. Use the command: <code>/token YOUR_TOKEN_HERE</code>\n\n`;
+              welcomeMsg += `Alternatively, click the button below to see the setup guide.`;
+              
+              const replyMarkup = {
+                inline_keyboard: [
+                  [{ text: "🔑 Setup Deriv Token", callback_data: "auth:setup_guide" }],
+                  [{ text: "📚 View Commands", callback_data: "help:main" }]
+                ]
+              };
+              await sendMessage(chatId, welcomeMsg, replyMarkup);
+            } else {
+              welcomeMsg += `✅ <b>System Ready</b>\nYour account is connected and ready to trade.\n\n`;
+              welcomeMsg += `Use the menu below to configure your agent or start a manual trade:`;
+              
+              const replyMarkup = {
+                inline_keyboard: [
+                  [{ text: "⏰ Auto-Trade Panel", callback_data: "auto_menu:main" }],
+                  [{ text: "💱 Manual Trade", callback_data: "select_symbol:cfd" }],
+                  [{ text: "📊 Status", callback_data: "status:refresh" }]
+                ]
+              };
+              await sendMessage(chatId, welcomeMsg, replyMarkup);
+            }
+            return jsonResponse({ ok: true });
+          }
+
+          if (command === "/token") {
+            const token = args[1];
+            if (!token) {
+              await sendMessage(chatId, "❌ Please provide your token: <code>/token YOUR_DERIV_TOKEN</code>");
+              return jsonResponse({ ok: true });
+            }
+            
+            await dbHelper.initializeSchema();
+            await dbHelper.updateUserSettings(chatId, "deriv_token", token);
+            await sendMessage(chatId, "✅ <b>Deriv API Token saved successfully!</b>\n\nI will now use your specific account for all trading operations. Use /status to verify your connection.");
             return jsonResponse({ ok: true });
           }
 
@@ -250,26 +295,37 @@ const workerHandler = {
           if (command === "/status") {
             await sendMessage(chatId, "⏳ Fetching agent status...");
             await dbHelper.initializeSchema();
-            const openPositions = await dbHelper.getOpenCfdPositions("R_100");
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const openPositions = await dbHelper.getOpenCfdPositions(undefined, chatId);
             
-            let statusMsg = `📊 <b>Agent Status</b>\n\n• Model: ${env.POOLSIDE_MODEL || process.env.POOLSIDE_MODEL || "poolside/laguna-s-2.1"}\n• Deriv Auth: ✅\n• Active Simulated CFD Positions: ${openPositions.length}`;
+            const hasToken = settings.deriv_token ? "✅ Connected" : "❌ Not Connected (Use /token)";
+            const model = settings.ai_model || env.POOLSIDE_MODEL || process.env.POOLSIDE_MODEL || "poolside/laguna-s-2.1";
+            
+            let statusMsg = `📊 <b>Agent Status</b>\n\n• User ID: <code>${chatId}</code>\n• Model: ${model}\n• Deriv Auth: ${hasToken}\n• Active CFD Positions: ${openPositions.length}`;
             if (openPositions.length > 0) {
               statusMsg += `\n\n<b>Positions:</b>\n` + openPositions.map((p: any) => `- ${p.symbol} ${p.direction} @ $${p.entry_price} (P/L: $${p.floating_pl.toFixed(2)})`).join("\n");
             }
-            await sendMessage(chatId, statusMsg);
+            
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "🔄 Refresh", callback_data: "status:refresh" }],
+                [{ text: "⏰ Auto-Trade Panel", callback_data: "auto_menu:main" }]
+              ]
+            };
+            
+            await sendMessage(chatId, statusMsg, replyMarkup);
             return jsonResponse({ ok: true });
           }
 
           if (command === "/report") {
              await sendMessage(chatId, "⏳ Fetching latest report...");
-             const reportReq = new Request(url.origin + "/api/report", { method: "GET" });
-             const reportRes = await workerHandler.fetch(reportReq, env, ctx);
-             if (reportRes.status === 200) {
-               const reportText = await reportRes.text();
+             await dbHelper.initializeSchema();
+             const reportText = await dbHelper.getLatestReport(chatId);
+             if (reportText) {
                const textToSend = reportText.length > 4000 ? reportText.substring(0, 4000) + "..." : reportText;
                await sendMessage(chatId, textToSend);
              } else {
-               await sendMessage(chatId, "❌ No reports found or error retrieving report.");
+               await sendMessage(chatId, "❌ No reports found for your account.");
              }
              return jsonResponse({ ok: true });
           }
@@ -278,7 +334,7 @@ const workerHandler = {
             const symbol = (args[1] || "R_100").toUpperCase();
             await sendMessage(chatId, `⏳ Fetching agent self-evolution memory for <b>${symbol}</b>...`);
             await dbHelper.initializeSchema();
-            const memoryText = await dbHelper.getAgentMemory(symbol);
+            const memoryText = await dbHelper.getAgentMemory(symbol, chatId);
             if (memoryText && memoryText.trim() !== "") {
               let html = memoryText;
               html = html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -344,52 +400,44 @@ const workerHandler = {
           const chatId = callbackQuery.message.chat.id;
 
           
-          if (data && data.startsWith("set_amount:")) {
-            const param = data.split(":")[1];
-            let replyMarkup: any = { inline_keyboard: [] };
-            let paramName = "";
+          if (data && data === "status:refresh") {
+            await answerCallbackQuery(callbackQuery.id, "Refreshing status...");
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const openPositions = await dbHelper.getOpenCfdPositions(undefined, chatId);
             
-            if (param === "options_stake") {
-              paramName = "Options Stake ($)";
-              replyMarkup.inline_keyboard = [
-                [{ text: "$1", callback_data: "save_amount:options_stake:1" }, { text: "$5", callback_data: "save_amount:options_stake:5" }],
-                [{ text: "$10", callback_data: "save_amount:options_stake:10" }, { text: "$20", callback_data: "save_amount:options_stake:20" }],
-                [{ text: "$50", callback_data: "save_amount:options_stake:50" }]
-              ];
-            } else if (param === "cfd_lots") {
-              paramName = "CFD Lots";
-              replyMarkup.inline_keyboard = [
-                [{ text: "0.1", callback_data: "save_amount:cfd_lots:0.1" }, { text: "0.5", callback_data: "save_amount:cfd_lots:0.5" }],
-                [{ text: "1.0", callback_data: "save_amount:cfd_lots:1" }, { text: "2.0", callback_data: "save_amount:cfd_lots:2" }],
-                [{ text: "5.0", callback_data: "save_amount:cfd_lots:5" }]
-              ];
-            } else if (param === "cfd_leverage") {
-              paramName = "CFD Leverage";
-              replyMarkup.inline_keyboard = [
-                [{ text: "10x", callback_data: "save_amount:cfd_leverage:10" }, { text: "50x", callback_data: "save_amount:cfd_leverage:50" }],
-                [{ text: "100x", callback_data: "save_amount:cfd_leverage:100" }, { text: "250x", callback_data: "save_amount:cfd_leverage:250" }]
-              ];
+            const hasToken = settings.deriv_token ? "✅ Connected" : "❌ Not Connected (Use /token)";
+            const model = settings.ai_model || env.POOLSIDE_MODEL || process.env.POOLSIDE_MODEL || "poolside/laguna-s-2.1";
+            
+            let statusMsg = `📊 <b>Agent Status</b>\n\n• User ID: <code>${chatId}</code>\n• Model: ${model}\n• Deriv Auth: ${hasToken}\n• Active CFD Positions: ${openPositions.length}`;
+            if (openPositions.length > 0) {
+              statusMsg += `\n\n<b>Positions:</b>\n` + openPositions.map((p: any) => `- ${p.symbol} ${p.direction} @ $${p.entry_price} (P/L: $${p.floating_pl.toFixed(2)})`).join("\n");
             }
             
-            await sendMessage(chatId, `⚙️ <b>Select new value for ${paramName}:</b>`, replyMarkup);
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "🔄 Refresh", callback_data: "status:refresh" }],
+                [{ text: "⏰ Auto-Trade Panel", callback_data: "auto_menu:main" }]
+              ]
+            };
+            
+            await sendMessage(chatId, statusMsg, replyMarkup);
+          } else if (data && data === "auth:setup_guide") {
+            let guide = `🔑 <b>Deriv Token Setup Guide</b>\n\n`;
+            guide += `1. Log in to <a href="https://deriv.com">Deriv</a>\n`;
+            guide += `2. Go to <b>Account Settings</b>\n`;
+            guide += `3. Select <b>API Token</b> under 'Security & Control'\n`;
+            guide += `4. Enter a name (e.g., 'Acrion Bot')\n`;
+            guide += `5. Select <b>Trade</b> and <b>Read</b> scopes\n`;
+            guide += `6. Click 'Create'\n`;
+            guide += `7. Copy the token and send it here using:\n<code>/token YOUR_TOKEN</code>`;
+            
+            await sendMessage(chatId, guide);
             await answerCallbackQuery(callbackQuery.id);
-            return jsonResponse({ ok: true });
-          } else if (data && data.startsWith("save_amount:")) {
-            const parts = data.split(":");
-            const param = parts[1];
-            const value = parseFloat(parts[2]);
-            
-            await dbHelper.initializeSchema();
-            await dbHelper.updateUserSettings(chatId, param, value);
-            
-            let paramName = param === "options_stake" ? "Options Stake" : (param === "cfd_lots" ? "CFD Lots" : "CFD Leverage");
-            let displayValue = param === "options_stake" ? `${value}` : (param === "cfd_leverage" ? `${value}x` : `${value}`);
-            
-            await sendMessage(chatId, `✅ <b>${paramName} updated successfully to ${displayValue}!</b>`);
-            await answerCallbackQuery(callbackQuery.id, `Saved ${paramName}: ${displayValue}`);
-            return jsonResponse({ ok: true });
-          } else 
-          if (data && data.startsWith("set_amount:")) {
+          } else if (data && data === "help:main") {
+             await sendMessage(chatId, `🤖 <b>Acrion Agent Commands</b>\n\n/status - Get agent status\n/trade - Trigger a manual CFD/Options trade cycle\n/amount - Configure trading amounts\n/report - Fetch the latest trading report\n/memory - View the agent's persistent self-evolution memory\n/model - Configure the AI model\n/auto - Setup automated trade scheduling control panel\n/token - Connect your Deriv API token`);
+             await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data.startsWith("set_amount:")) {
             const param = data.split(":")[1];
             let replyMarkup: any = { inline_keyboard: [] };
             let paramName = "";
@@ -642,19 +690,18 @@ const workerHandler = {
         const leverage = body.leverage || 100; // CFD leverage
         const multiplier = body.multiplier || 100; // Index price point multiplier
 
-        // Initialize Clients with fallbacks to process.env and verified tokens
-        const derivToken = env.DERIV_TOKEN || process.env.DERIV_TOKEN || "pat_48a3740b33a183cf5f7598039d270871ab2239c00b9e7eb0a00a4b5b2f522d78";
-        const derivClient = new DerivClient(
-          derivToken,
-          body.app_id || "33VKvdJA8yrAFlw0tC9Fn"
-        );
-
-        
         const chatId = body.chat_id;
         let settings: any = {};
         if (chatId) {
           settings = await dbHelper.getUserSettings(chatId) || {};
         }
+
+        // Initialize Clients with fallbacks to user-specific token, then env, then default
+        const derivToken = settings.deriv_token || env.DERIV_TOKEN || process.env.DERIV_TOKEN || "pat_48a3740b33a183cf5f7598039d270871ab2239c00b9e7eb0a00a4b5b2f522d78";
+        const derivClient = new DerivClient(
+          derivToken,
+          body.app_id || "33VKvdJA8yrAFlw0tC9Fn"
+        );
 
         const aiProvider = settings.ai_provider || "poolside";
         const poolsideModel = settings.ai_model || env.POOLSIDE_MODEL || process.env.POOLSIDE_MODEL || "poolside/laguna-s-2.1";
@@ -686,7 +733,7 @@ const workerHandler = {
           // Fetch market data
           ticksHistory = await derivClient.getTicksHistory(symbol, 10);
           currentTick = ticksHistory[ticksHistory.length - 1];
-          await dbHelper.saveDecisionTick(symbol, currentTick);
+          await dbHelper.saveDecisionTick(symbol, currentTick, chatId);
 
         } catch (e: any) {
           console.error("Deriv API Initialization Error:", e.message);
@@ -699,7 +746,7 @@ const workerHandler = {
 
         // 1. If we are in CFD mode, simulate live tick updates for all active CFD positions
         if (mode === "cfd") {
-          const openPositions = await dbHelper.getOpenCfdPositions(symbol);
+          const openPositions = await dbHelper.getOpenCfdPositions(symbol, chatId);
           for (const pos of openPositions) {
             // Calculate floating profit/loss
             let floatingPl = 0;
@@ -739,10 +786,10 @@ const workerHandler = {
         }
 
         // Fetch remaining/active open CFD positions
-        const activeCfdPositions = await dbHelper.getOpenCfdPositions(symbol);
+        const activeCfdPositions = await dbHelper.getOpenCfdPositions(symbol, chatId);
 
         // Retrieve persistent self-evolution memory from D1 database
-        const currentMemory = await dbHelper.getAgentMemory(symbol);
+        const currentMemory = await dbHelper.getAgentMemory(symbol, chatId);
 
         // Fetch AI Trading Decision from Poolside/Gemini with injected Memory Heuristics
         console.log(`Analyzing trends with Poolside/Gemini ${poolsideModel}...`);
@@ -806,7 +853,7 @@ const workerHandler = {
                   margin: marginRequired,
                   floating_pl: 0,
                   open_time: new Date().toISOString()
-                });
+                }, chatId);
 
                 tradeStatus = "SUCCESS";
                 purchasePrice = currentTick;
@@ -871,7 +918,7 @@ const workerHandler = {
           decision_reason: decision.reason + (logs.length > 0 ? " | Logs: " + logs.join("; ") : ""),
           confidence: decision.confidence,
           status: tradeStatus
-        });
+        }, chatId);
 
         // Check Smart Routing (3 consecutive HOLDS switch asset)
         let smartRoutingSwitched = false;
@@ -879,7 +926,7 @@ const workerHandler = {
         let nextSymbol = symbol;
         if (decision.action === "HOLD" && settings.smart_routing === 1 && chatId) {
           try {
-            const results = await dbHelper.getRecentTradesForSymbol(symbol, 3);
+            const results = await dbHelper.getRecentTradesForSymbol(symbol, 3, chatId);
             
             if (results && results.length >= 3 && results.every((r: any) => r.action === "HOLD")) {
               const AVAILABLE_SYMBOLS = ["R_10", "R_25", "R_50", "R_75", "R_100"];
@@ -902,8 +949,8 @@ const workerHandler = {
         // 🧠 Evolutionary Self-Learning Phase (Up to 3k tokens memory budget)
         try {
           console.log("Acrion Agent: Running background evolutionary self-learning analysis...");
-          const recentTrades = await dbHelper.getRecentTrades(10);
-          const recentCfdPositions = await dbHelper.getAllCfdPositions(10);
+          const recentTrades = await dbHelper.getRecentTrades(10, chatId);
+          const recentCfdPositions = await dbHelper.getAllCfdPositions(10, chatId);
           
           const updatedMemory = await poolsideClient.evolveMemory({
             symbol,
@@ -915,7 +962,7 @@ const workerHandler = {
           });
 
           if (updatedMemory && updatedMemory.trim() !== "") {
-            await dbHelper.saveAgentMemory(symbol, updatedMemory);
+            await dbHelper.saveAgentMemory(symbol, updatedMemory, chatId);
             console.log("Acrion Agent: Evolved trading memory saved successfully.");
           }
         } catch (memError: any) {
@@ -923,7 +970,7 @@ const workerHandler = {
         }
 
         // Fetch latest state for reporting
-        const latestOpenCfdPositions = await dbHelper.getOpenCfdPositions(symbol);
+        const latestOpenCfdPositions = await dbHelper.getOpenCfdPositions(symbol, chatId);
 
         // Generate report content
         const reportContent = `<b>Deriv AI Trading Run Report</b>
@@ -949,8 +996,8 @@ ${logs.length > 0 ? logs.map(l => `• ${l}`).join("\n") : "• No logs"}
 
         try {
           await dbHelper.initializeSchema();
-          await dbHelper.saveReport(reportContent);
-          console.log(`Saved execution report to D1 database`);
+          await dbHelper.saveReport(reportContent, chatId);
+          console.log(`Saved execution report to D1 database for user ${chatId}`);
         } catch (e) {
           console.error(`Failed to save execution report to DB:`, e);
         }
