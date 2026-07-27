@@ -62,7 +62,7 @@ Analyze the micro-trend and make your trade decision immediately. Ensure amount 
             }
           }
         });
-        const response = await ai.models.generateContent({
+        const responsePromise = ai.models.generateContent({
           model: this.model.startsWith("gemini") ? this.model : "gemini-3.5-flash-lite",
           contents: userPrompt,
           config: {
@@ -98,6 +98,12 @@ Analyze the micro-trend and make your trade decision immediately. Ensure amount 
           }
         });
 
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Gemini decision request timed out after 25s")), 25000)
+        );
+
+        const response: any = await Promise.race([responsePromise, timeoutPromise]);
+
         const text = response.text || "{}";
         const decision: TradeDecision = JSON.parse(text);
         return {
@@ -122,17 +128,20 @@ Analyze the micro-trend and make your trade decision immediately. Ensure amount 
     }
 
     const url = `${this.apiUrl}/chat/completions`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [
-          { role: "system", content: systemPrompt + `\nYour decision MUST be returned as a JSON object.
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            { role: "system", content: systemPrompt + `\nYour decision MUST be returned as a JSON object.
 JSON Schema:
 {
   "action": "BUY_CALL" | "BUY_PUT" | "HOLD",
@@ -142,49 +151,58 @@ JSON Schema:
   "symbol": "${marketContext.symbol}",
   "amount": 1.0
 }` },
-          { role: "user", content: userPrompt }
-        ],
-        temperature: 0.1,
-        max_tokens: 2048,
-        response_format: { type: "json_object" }
-      })
-    });
+            { role: "user", content: userPrompt }
+          ],
+          temperature: 0.1,
+          max_tokens: 2048,
+          response_format: { type: "json_object" }
+        }),
+        signal: controller.signal
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Poolside API request failed with status ${response.status}: ${errorText}`);
-    }
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Poolside API request failed with status ${response.status}: ${errorText}`);
+      }
 
-    const data: any = await response.json();
-    console.log("Poolside Raw Response Data:", JSON.stringify(data, null, 2));
-    const content = data.choices?.[0]?.message?.content?.trim() || "";
-    
-    // Clean potential markdown wrapper formatting
-    let cleanJson = content.trim();
-    if (cleanJson.startsWith("```json")) {
-      cleanJson = cleanJson.substring(7);
-    } else if (cleanJson.startsWith("```")) {
-      cleanJson = cleanJson.substring(3);
-    }
-    cleanJson = cleanJson.trim();
-    if (cleanJson.endsWith("```")) {
-      cleanJson = cleanJson.substring(0, cleanJson.length - 3);
-    }
-    cleanJson = cleanJson.trim();
+      const data: any = await response.json();
+      console.log("Poolside Raw Response Data:", JSON.stringify(data, null, 2));
+      const content = data.choices?.[0]?.message?.content?.trim() || "";
+      
+      // Clean potential markdown wrapper formatting
+      let cleanJson = content.trim();
+      if (cleanJson.startsWith("```json")) {
+        cleanJson = cleanJson.substring(7);
+      } else if (cleanJson.startsWith("```")) {
+        cleanJson = cleanJson.substring(3);
+      }
+      cleanJson = cleanJson.trim();
+      if (cleanJson.endsWith("```")) {
+        cleanJson = cleanJson.substring(0, cleanJson.length - 3);
+      }
+      cleanJson = cleanJson.trim();
 
-    try {
-      const decision: TradeDecision = JSON.parse(cleanJson);
-      return decision;
-    } catch (e) {
-      console.error("Failed to parse Poolside LLM output as JSON. Raw response content:", content);
-      return {
-        action: "HOLD",
-        contract_type: null,
-        reason: `LLM parsing failed. Raw response: ${content.substring(0, 100)}`,
-        confidence: 0,
-        symbol: marketContext.symbol,
-        amount: 0
-      };
+      try {
+        const decision: TradeDecision = JSON.parse(cleanJson);
+        return decision;
+      } catch (e) {
+        console.error("Failed to parse Poolside LLM output as JSON. Raw response content:", content);
+        return {
+          action: "HOLD",
+          contract_type: null,
+          reason: `LLM parsing failed. Raw response: ${content.substring(0, 100)}`,
+          confidence: 0,
+          symbol: marketContext.symbol,
+          amount: 0
+        };
+      }
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        throw new Error("Poolside API request timed out after 25s");
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -230,7 +248,7 @@ Return the complete updated 'Lessons & Micro-heuristics' text now.`;
           }
         }
       });
-      const response = await ai.models.generateContent({
+      const responsePromise = ai.models.generateContent({
         model: "gemini-3.5-flash-lite",
         contents: userPrompt,
         config: {
@@ -239,6 +257,12 @@ Return the complete updated 'Lessons & Micro-heuristics' text now.`;
           maxOutputTokens: 4096
         }
       });
+
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Gemini evolution request timed out after 45s")), 45000)
+      );
+
+      const response: any = await Promise.race([responsePromise, timeoutPromise]);
 
       return response.text?.trim() || "";
     } catch (e: any) {
