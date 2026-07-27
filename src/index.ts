@@ -200,33 +200,60 @@ const workerHandler = {
             let welcomeMsg = `🤖 <b>Welcome to Acrion Agent</b>\n\n`;
             welcomeMsg += `I am an evolutionary AI trading agent powered by Poolside and Gemini. I can trade Options and CFD assets on Deriv automatically for you.\n\n`;
             
-            if (!settings || !settings.deriv_token) {
-              welcomeMsg += `⚠️ <b>Action Required:</b> To start trading, you must provide your Deriv API Token.\n\n`;
+            const activeToken = settings?.deriv_account_type === 'real' ? settings?.deriv_token_real : settings?.deriv_token_demo;
+
+            if (!settings || !activeToken) {
+              welcomeMsg += `⚠️ <b>Action Required:</b> To start trading, you must provide your Deriv API Token for the current environment (<b>${(settings?.deriv_account_type || 'demo').toUpperCase()}</b>).\n\n`;
               welcomeMsg += `1. Go to Deriv Settings > API Token\n`;
               welcomeMsg += `2. Create a token with 'Trade' and 'Read' scopes\n`;
               welcomeMsg += `3. Use the command: <code>/token YOUR_TOKEN_HERE</code>\n\n`;
-              welcomeMsg += `Alternatively, click the button below to see the setup guide.`;
+              welcomeMsg += `Alternatively, use /settings to switch between Demo and Real accounts.`;
               
               const replyMarkup = {
                 inline_keyboard: [
                   [{ text: "🔑 Setup Deriv Token", callback_data: "auth:setup_guide" }],
+                  [{ text: "⚙️ Settings", callback_data: "settings:main" }],
                   [{ text: "📚 View Commands", callback_data: "help:main" }]
                 ]
               };
               await sendMessage(chatId, welcomeMsg, replyMarkup);
             } else {
-              welcomeMsg += `✅ <b>System Ready</b>\nYour account is connected and ready to trade.\n\n`;
+              welcomeMsg += `✅ <b>System Ready (${(settings.deriv_account_type || 'demo').toUpperCase()})</b>\nYour account is connected and ready to trade.\n\n`;
               welcomeMsg += `Use the menu below to configure your agent or start a manual trade:`;
               
               const replyMarkup = {
                 inline_keyboard: [
                   [{ text: "⏰ Auto-Trade Panel", callback_data: "auto_menu:main" }],
+                  [{ text: "⚙️ Settings", callback_data: "settings:main" }],
                   [{ text: "💱 Manual Trade", callback_data: "select_symbol:cfd" }],
                   [{ text: "📊 Status", callback_data: "status:refresh" }]
                 ]
               };
               await sendMessage(chatId, welcomeMsg, replyMarkup);
             }
+            return jsonResponse({ ok: true });
+          }
+
+          if (command === "/settings") {
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const accountType = settings.deriv_account_type || 'demo';
+            
+            let msg = `⚙️ <b>Acrion Settings</b>\n\n`;
+            msg += `• Account Type: <b>${accountType.toUpperCase()}</b>\n`;
+            msg += `• AI Provider: <b>${(settings.ai_provider || 'poolside').toUpperCase()}</b>\n`;
+            msg += `• Model: <code>${settings.ai_model || env.POOLSIDE_MODEL || 'poolside/laguna-s-2.1'}</code>\n\n`;
+            msg += `Manage your preferences below:`;
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: `🔄 Switch to ${accountType === 'demo' ? 'REAL' : 'DEMO'} Account`, callback_data: `settings:toggle_account` }],
+                [{ text: "🤖 AI Model Configuration", callback_data: "settings:ai_menu" }],
+                [{ text: "💰 Trading Limits", callback_data: "amount_menu" }]
+              ]
+            };
+
+            await sendMessage(chatId, msg, replyMarkup);
             return jsonResponse({ ok: true });
           }
 
@@ -238,8 +265,12 @@ const workerHandler = {
             }
             
             await dbHelper.initializeSchema();
-            await dbHelper.updateUserSettings(chatId, "deriv_token", token);
-            await sendMessage(chatId, "✅ <b>Deriv API Token saved successfully!</b>\n\nI will now use your specific account for all trading operations. Use /status to verify your connection.");
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const accountType = settings.deriv_account_type || 'demo';
+            const column = accountType === 'real' ? 'deriv_token_real' : 'deriv_token_demo';
+            
+            await dbHelper.updateUserSettings(chatId, column, token);
+            await sendMessage(chatId, `✅ <b>Deriv ${accountType.toUpperCase()} API Token saved!</b>\n\nI will now use this token for ${accountType} operations. Use /status to verify.`);
             return jsonResponse({ ok: true });
           }
 
@@ -467,6 +498,75 @@ const workerHandler = {
             await sendMessage(chatId, `⚙️ <b>Select new value for ${paramName}:</b>`, replyMarkup);
             await answerCallbackQuery(callbackQuery.id);
             return jsonResponse({ ok: true });
+          } else if (data && data === "settings:toggle_account") {
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const currentType = settings.deriv_account_type || 'demo';
+            const newType = currentType === 'demo' ? 'real' : 'demo';
+            
+            await dbHelper.updateUserSettings(chatId, "deriv_account_type", newType);
+            
+            await answerCallbackQuery(callbackQuery.id, `✅ Switched to ${newType.toUpperCase()}`);
+            
+            // Re-render settings menu
+            const accountType = newType;
+            let msg = `⚙️ <b>Acrion Settings</b>\n\n`;
+            msg += `• Account Type: <b>${accountType.toUpperCase()}</b>\n`;
+            msg += `• AI Provider: <b>${(settings.ai_provider || 'poolside').toUpperCase()}</b>\n`;
+            msg += `• Model: <code>${settings.ai_model || env.POOLSIDE_MODEL || 'poolside/laguna-s-2.1'}</code>\n\n`;
+            msg += `Manage your preferences below:`;
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: `🔄 Switch to ${accountType === 'demo' ? 'REAL' : 'DEMO'} Account`, callback_data: `settings:toggle_account` }],
+                [{ text: "🤖 AI Model Configuration", callback_data: "settings:ai_menu" }],
+                [{ text: "💰 Trading Limits", callback_data: "amount_menu" }]
+              ]
+            };
+            await sendMessage(chatId, msg, replyMarkup);
+          } else if (data && data === "settings:main") {
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const accountType = settings.deriv_account_type || 'demo';
+            
+            let msg = `⚙️ <b>Acrion Settings</b>\n\n`;
+            msg += `• Account Type: <b>${accountType.toUpperCase()}</b>\n`;
+            msg += `• AI Provider: <b>${(settings.ai_provider || 'poolside').toUpperCase()}</b>\n`;
+            msg += `• Model: <code>${settings.ai_model || env.POOLSIDE_MODEL || 'poolside/laguna-s-2.1'}</code>\n\n`;
+            msg += `Manage your preferences below:`;
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: `🔄 Switch to ${accountType === 'demo' ? 'REAL' : 'DEMO'} Account`, callback_data: `settings:toggle_account` }],
+                [{ text: "🤖 AI Model Configuration", callback_data: "settings:ai_menu" }],
+                [{ text: "💰 Trading Limits", callback_data: "amount_menu" }]
+              ]
+            };
+
+            await sendMessage(chatId, msg, replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data === "settings:ai_menu") {
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "🌊 Poolside (Laguna 2.1)", callback_data: "set_model:poolside:poolside/laguna-s-2.1" }],
+                [{ text: "✨ Gemini 1.5 Flash", callback_data: "set_model:gemini:models/gemini-1.5-flash" }],
+                [{ text: "💎 Gemini 1.5 Pro", callback_data: "set_model:gemini:models/gemini-1.5-pro" }],
+                [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
+              ]
+            };
+            await sendMessage(chatId, "🤖 <b>Select AI Model:</b>", replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data === "amount_menu") {
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "💵 Options Stake", callback_data: "set_amount:options_stake" }],
+                [{ text: "📦 CFD Lots", callback_data: "set_amount:cfd_lots" }],
+                [{ text: "⚖️ CFD Leverage", callback_data: "set_amount:cfd_leverage" }],
+                [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
+              ]
+            };
+            await sendMessage(chatId, "💰 <b>Configure Trading Limits:</b>", replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
           } else if (data && data.startsWith("save_amount:")) {
             const parts = data.split(":");
             const param = parts[1];

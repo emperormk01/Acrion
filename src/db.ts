@@ -94,11 +94,24 @@ export class DbHelper {
       CREATE TABLE IF NOT EXISTS user_settings (
         chat_id TEXT PRIMARY KEY,
         deriv_token TEXT,
+        deriv_token_demo TEXT,
+        deriv_token_real TEXT,
+        deriv_account_type TEXT DEFAULT 'demo',
         options_stake REAL,
         cfd_lots REAL,
         cfd_leverage REAL
       )
     `).run();
+
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN deriv_token_demo TEXT`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN deriv_token_real TEXT`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN deriv_account_type TEXT DEFAULT 'demo'`).run();
+    } catch (e) {}
     
     // Trading Reports
     await this.db.prepare(`
