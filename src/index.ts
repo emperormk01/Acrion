@@ -561,12 +561,21 @@ const workerHandler = {
             const replyMarkup = {
               inline_keyboard: [
                 [{ text: "🌊 Poolside (Laguna 2.1)", callback_data: "set_model:poolside:poolside/laguna-s-2.1" }],
-                [{ text: "✨ Gemini 1.5 Flash", callback_data: "set_model:gemini:models/gemini-1.5-flash" }],
-                [{ text: "💎 Gemini 1.5 Pro", callback_data: "set_model:gemini:models/gemini-1.5-pro" }],
+                [{ text: "✨ Gemini Models", callback_data: "settings:gemini_menu" }],
                 [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
               ]
             };
-            await editMessage(chatId, callbackQuery.message.message_id, "🤖 <b>Select AI Model:</b>", replyMarkup);
+            await editMessage(chatId, callbackQuery.message.message_id, "🤖 <b>Select AI Provider:</b>", replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data === "settings:gemini_menu") {
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "📉 Low", callback_data: "set_model:gemini:models/gemini-3.1-flash-lite" }],
+                [{ text: "📈 High", callback_data: "set_model:gemini:models/gemini-3.5-flash-lite" }],
+                [{ text: "⬅️ Back to AI Menu", callback_data: "settings:ai_menu" }]
+              ]
+            };
+            await editMessage(chatId, callbackQuery.message.message_id, "✨ <b>Select Gemini Tier:</b>", replyMarkup);
             await answerCallbackQuery(callbackQuery.id);
           } else if (data && data === "amount_menu") {
             const replyMarkup = {
