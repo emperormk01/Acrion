@@ -414,11 +414,12 @@ const workerHandler = {
           if (command === "/model") {
             const replyMarkup = {
               inline_keyboard: [
-                [{ text: "🌊 Poolside (Laguna)", callback_data: "set_model:poolside:poolside/laguna-s-2.1" }],
-                [{ text: "✨ Gemini (Flash Lite)", callback_data: "set_model:gemini:gemini-3.5-flash-lite" }]
+                [{ text: "🌊 Poolside (Laguna 2.1)", callback_data: "set_model:poolside:poolside/laguna-s-2.1" }],
+                [{ text: "✨ Gemini Models", callback_data: "settings:gemini_menu" }],
+                [{ text: "⚙️ General Settings", callback_data: "settings:main" }]
               ]
             };
-            await sendMessage(chatId, "🤖 <b>Select AI Trading Model:</b>", replyMarkup);
+            await sendMessage(chatId, "🤖 <b>Select AI Provider:</b>", replyMarkup);
             return jsonResponse({ ok: true });
           }
 
@@ -623,25 +624,16 @@ const workerHandler = {
             
             await answerCallbackQuery(callbackQuery.id, "✅ Model updated");
 
-            // Go back to settings menu
-            const settings = await dbHelper.getUserSettings(chatId) || {};
-            const accountType = settings.deriv_account_type || 'demo';
-            
-            let msg = `✅ <b>AI Model updated to ${modelName}</b>\n\n`;
-            msg += `⚙️ <b>Acrion Settings</b>\n\n`;
-            msg += `• Account Type: <b>${accountType.toUpperCase()}</b>\n`;
-            msg += `• AI Provider: <b>${provider.toUpperCase()}</b>\n`;
-            msg += `• Model: <code>${modelName}</code>\n\n`;
-            msg += `Manage your preferences below:`;
-
+            // Go back to AI menu
             const replyMarkup = {
               inline_keyboard: [
-                [{ text: `🔄 Switch to ${accountType === 'demo' ? 'REAL' : 'DEMO'} Account`, callback_data: `settings:toggle_account` }],
-                [{ text: "🤖 AI Model Configuration", callback_data: "settings:ai_menu" }],
-                [{ text: "💰 Trading Limits", callback_data: "amount_menu" }]
+                [{ text: "🌊 Poolside (Laguna 2.1)", callback_data: "set_model:poolside:poolside/laguna-s-2.1" }],
+                [{ text: "✨ Gemini Models", callback_data: "settings:gemini_menu" }],
+                [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
               ]
             };
-
+            
+            const msg = `✅ <b>AI Model updated to ${modelName}</b>\n\n🤖 <b>Select AI Provider:</b>`;
             await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
             return jsonResponse({ ok: true });
           } else if (data && data.startsWith("select_symbol:")) {
