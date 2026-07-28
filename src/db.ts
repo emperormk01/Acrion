@@ -97,6 +97,8 @@ export class DbHelper {
         deriv_token_demo TEXT,
         deriv_token_real TEXT,
         deriv_account_type TEXT DEFAULT 'demo',
+        poolside_api_key TEXT,
+        gemini_api_key TEXT,
         options_stake REAL,
         cfd_lots REAL,
         cfd_leverage REAL
@@ -111,6 +113,12 @@ export class DbHelper {
     } catch (e) {}
     try {
       await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN deriv_account_type TEXT DEFAULT 'demo'`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN poolside_api_key TEXT`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN gemini_api_key TEXT`).run();
     } catch (e) {}
     
     // Trading Reports

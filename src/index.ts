@@ -261,6 +261,7 @@ const workerHandler = {
               inline_keyboard: [
                 [{ text: `🔄 Switch to ${accountType === 'demo' ? 'REAL' : 'DEMO'} Account`, callback_data: `settings:toggle_account` }],
                 [{ text: "🤖 AI Model Configuration", callback_data: "settings:ai_menu" }],
+                [{ text: "🔑 Manage AI Keys", callback_data: "settings:keys" }],
                 [{ text: "💰 Trading Limits", callback_data: "amount_menu" }]
               ]
             };
@@ -283,6 +284,60 @@ const workerHandler = {
             
             await dbHelper.updateUserSettings(chatId, column, token);
             await sendMessage(chatId, `✅ <b>Deriv ${accountType.toUpperCase()} API Token saved!</b>\n\nI will now use this token for ${accountType} operations. Use /status to verify.`);
+            return jsonResponse({ ok: true });
+          }
+
+          if (command === "/key") {
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            
+            const pKey = settings.poolside_api_key ? `<code>${settings.poolside_api_key.substring(0, 4)}...${settings.poolside_api_key.substring(settings.poolside_api_key.length - 4)}</code>` : "❌ <i>Not Set</i>";
+            const gKey = settings.gemini_api_key ? `<code>${settings.gemini_api_key.substring(0, 4)}...${settings.gemini_api_key.substring(settings.gemini_api_key.length - 4)}</code>` : "❌ <i>Not Set</i>";
+
+            let msg = `🔑 <b>AI API Key Management</b>\n\n`;
+            msg += `You can provide your own API keys to use for trading analysis. These are stored securely and only used for your chat sessions.\n\n`;
+            msg += `• Poolside Key: ${pKey}\n`;
+            msg += `• Gemini Key: ${gKey}\n\n`;
+            msg += `<b>How to update:</b>\n`;
+            msg += `Use the following commands:\n`;
+            msg += `- <code>/key poolside YOUR_KEY</code>\n`;
+            msg += `- <code>/key gemini YOUR_KEY</code>\n\n`;
+            msg += `To clear a key, use <code>/key clear &lt;provider&gt;</code>`;
+
+            const provider = args[1];
+            const keyValue = args[2];
+
+            if (provider && keyValue) {
+              const col = provider.toLowerCase() === 'poolside' ? 'poolside_api_key' : (provider.toLowerCase() === 'gemini' ? 'gemini_api_key' : null);
+              if (col) {
+                if (keyValue === 'clear') {
+                   await dbHelper.updateUserSettings(chatId, col, "");
+                   await sendMessage(chatId, `✅ <b>${provider.toUpperCase()} API Key cleared!</b>`);
+                } else {
+                   await dbHelper.updateUserSettings(chatId, col, keyValue);
+                   await sendMessage(chatId, `✅ <b>${provider.toUpperCase()} API Key saved!</b>\n\nI will now use your specific key for ${provider} operations.`);
+                }
+                return jsonResponse({ ok: true });
+              }
+            } else if (provider === 'clear') {
+               const subProvider = args[2];
+               const col = subProvider?.toLowerCase() === 'poolside' ? 'poolside_api_key' : (subProvider?.toLowerCase() === 'gemini' ? 'gemini_api_key' : null);
+               if (col) {
+                  await dbHelper.updateUserSettings(chatId, col, "");
+                  await sendMessage(chatId, `✅ <b>${subProvider.toUpperCase()} API Key cleared!</b>`);
+                  return jsonResponse({ ok: true });
+               }
+            }
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "🌊 Set Poolside Key", switch_inline_query_current_chat: "/key poolside " }],
+                [{ text: "✨ Set Gemini Key", switch_inline_query_current_chat: "/key gemini " }],
+                [{ text: "⚙️ Settings", callback_data: "settings:main" }]
+              ]
+            };
+
+            await sendMessage(chatId, msg, replyMarkup);
             return jsonResponse({ ok: true });
           }
 
@@ -479,7 +534,7 @@ const workerHandler = {
             await sendMessage(chatId, guide);
             await answerCallbackQuery(callbackQuery.id);
           } else if (data && data === "help:main") {
-             await sendMessage(chatId, `🤖 <b>Acrion Agent Commands</b>\n\n/status - Get agent status\n/trade - Trigger a manual CFD/Options trade cycle\n/amount - Configure trading amounts\n/report - Fetch the latest trading report\n/memory - View the agent's persistent self-evolution memory\n/model - Configure the AI model\n/auto - Setup automated trade scheduling control panel\n/token - Connect your Deriv API token`);
+             await sendMessage(chatId, `🤖 <b>Acrion Agent Commands</b>\n\n/status - Get agent status\n/trade - Trigger a manual CFD/Options trade cycle\n/amount - Configure trading amounts\n/report - Fetch the latest trading report\n/memory - View the agent's persistent self-evolution memory\n/model - Configure the AI model\n/key - Manage your personal AI API keys\n/auto - Setup automated trade scheduling control panel\n/token - Connect your Deriv API token`);
              await answerCallbackQuery(callbackQuery.id);
           } else if (data && data.startsWith("set_amount:")) {
             const param = data.split(":")[1];
@@ -533,6 +588,7 @@ const workerHandler = {
               inline_keyboard: [
                 [{ text: `🔄 Switch to ${accountType === 'demo' ? 'REAL' : 'DEMO'} Account`, callback_data: `settings:toggle_account` }],
                 [{ text: "🤖 AI Model Configuration", callback_data: "settings:ai_menu" }],
+                [{ text: "🔑 Manage AI Keys", callback_data: "settings:keys" }],
                 [{ text: "💰 Trading Limits", callback_data: "amount_menu" }]
               ]
             };
@@ -552,10 +608,36 @@ const workerHandler = {
               inline_keyboard: [
                 [{ text: `🔄 Switch to ${accountType === 'demo' ? 'REAL' : 'DEMO'} Account`, callback_data: `settings:toggle_account` }],
                 [{ text: "🤖 AI Model Configuration", callback_data: "settings:ai_menu" }],
+                [{ text: "🔑 Manage AI Keys", callback_data: "settings:keys" }],
                 [{ text: "💰 Trading Limits", callback_data: "amount_menu" }]
               ]
             };
 
+            await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data === "settings:keys") {
+            await dbHelper.initializeSchema();
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            
+            const pKey = settings.poolside_api_key ? `<code>${settings.poolside_api_key.substring(0, 4)}...${settings.poolside_api_key.substring(settings.poolside_api_key.length - 4)}</code>` : "❌ <i>Not Set</i>";
+            const gKey = settings.gemini_api_key ? `<code>${settings.gemini_api_key.substring(0, 4)}...${settings.gemini_api_key.substring(settings.gemini_api_key.length - 4)}</code>` : "❌ <i>Not Set</i>";
+
+            let msg = `🔑 <b>AI API Key Management</b>\n\n`;
+            msg += `• Poolside Key: ${pKey}\n`;
+            msg += `• Gemini Key: ${gKey}\n\n`;
+            msg += `<b>How to update:</b>\n`;
+            msg += `Use the following commands:\n`;
+            msg += `- <code>/key poolside YOUR_KEY</code>\n`;
+            msg += `- <code>/key gemini YOUR_KEY</code>\n\n`;
+            msg += `To clear a key, use <code>/key clear &lt;provider&gt;</code>`;
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "🌊 Set Poolside Key", switch_inline_query_current_chat: "/key poolside " }],
+                [{ text: "✨ Set Gemini Key", switch_inline_query_current_chat: "/key gemini " }],
+                [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
+              ]
+            };
             await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
             await answerCallbackQuery(callbackQuery.id);
           } else if (data && data === "settings:ai_menu") {
@@ -849,9 +931,9 @@ const workerHandler = {
         const aiProvider = settings.ai_provider || "poolside";
         const poolsideModel = settings.ai_model || env.POOLSIDE_MODEL || process.env.POOLSIDE_MODEL || "poolside/laguna-s-2.1";
         
-        const poolsideApiKey = env.POOLSIDE_API_KEY || process.env.POOLSIDE_API_KEY || "";
+        const poolsideApiKey = settings.poolside_api_key || env.POOLSIDE_API_KEY || process.env.POOLSIDE_API_KEY || "";
         const poolsideApiUrl = env.POOLSIDE_API_URL || process.env.POOLSIDE_API_URL || "https://inference.poolside.ai/v1";
-        const geminiApiKey = env.GEMINI_API_KEY || "";
+        const geminiApiKey = settings.gemini_api_key || env.GEMINI_API_KEY || "";
 
         const poolsideClient = new PoolsideClient(
           poolsideApiKey,
