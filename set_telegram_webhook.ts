@@ -10,7 +10,7 @@ const webhookUrl = `${url.replace(/\/$/, '')}/api/telegram`;
 
 async function setWebhook() {
   console.log(`Setting webhook for bot to ${webhookUrl}...`);
-  const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`);
+  const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}&drop_pending_updates=true`);
   const data = await response.json();
   
   if (data.ok) {

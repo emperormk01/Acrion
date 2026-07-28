@@ -646,13 +646,16 @@ const workerHandler = {
             
             let msg = `✨ <b>Setting ${provider.toUpperCase()} API Key</b>\n\n`;
             msg += `Please send your API key as a plain text message now.\n\n`;
-            msg += `<i>Tip: Your message will be deleted after processing to keep your chat clean.</i>`;
+            msg += `<i>Privacy Notice: I will automatically delete your message after saving the key.</i>`;
             
+            // Using ForceReply to automatically open the keyboard input
             const replyMarkup = {
-              inline_keyboard: [[{ text: "❌ Cancel", callback_data: "settings:keys" }]]
+              force_reply: true,
+              selective: true,
+              input_field_placeholder: `Paste your ${provider} key here...`
             };
             
-            await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
+            await sendMessage(chatId, msg, replyMarkup);
             await answerCallbackQuery(callbackQuery.id);
           } else if (data && data.startsWith("clear_key:")) {
             const provider = data.split(":")[1];
