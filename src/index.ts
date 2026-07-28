@@ -149,6 +149,16 @@ const workerHandler = {
           });
         };
 
+        const deleteMessage = async (chatId: number, messageId: number) => {
+          try {
+            await fetch(`https://api.telegram.org/bot${telegramToken}/deleteMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ chat_id: chatId, message_id: messageId })
+            });
+          } catch (e) {}
+        };
+
         const executeTrade = async (chatId: number, symbol: string, mode: string = "options") => {
           await sendMessage(chatId, `⏳ Initiating ${mode === "options" ? "Options" : "CFD"} trade cycle for <b>${symbol}</b>...`);
           
@@ -213,7 +223,10 @@ const workerHandler = {
                 await dbHelper.updateUserSettings(chatId, col, text);
                 await dbHelper.updateUserSettings(chatId, 'waiting_state', "");
                 
-                await sendMessage(chatId, `✅ <b>${provider.charAt(0).toUpperCase() + provider.slice(1)} API Key saved!</b>\n\nI will now use your specific key for AI operations.`);
+                // Privacy: delete the message containing the key
+                await deleteMessage(chatId, update.message.message_id);
+                
+                await sendMessage(chatId, `✅ <b>${provider.charAt(0).toUpperCase() + provider.slice(1)} API Key saved!</b>\n\nI have deleted your message for privacy. I will now use this key for AI operations.`);
                 return jsonResponse({ ok: true });
              }
           }
@@ -606,6 +619,8 @@ const workerHandler = {
             await answerCallbackQuery(callbackQuery.id);
           } else if (data && data === "settings:keys") {
             await dbHelper.initializeSchema();
+            // Clear any pending state when entering menu
+            await dbHelper.updateUserSettings(chatId, 'waiting_state', "");
             const settings = await dbHelper.getUserSettings(chatId) || {};
             
             const pKey = settings.poolside_api_key ? `<code>${settings.poolside_api_key.substring(0, 4)}...${settings.poolside_api_key.substring(settings.poolside_api_key.length - 4)}</code>` : "❌ <i>Not Set</i>";
