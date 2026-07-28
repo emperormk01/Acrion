@@ -99,6 +99,7 @@ export class DbHelper {
         deriv_account_type TEXT DEFAULT 'demo',
         poolside_api_key TEXT,
         gemini_api_key TEXT,
+        waiting_state TEXT,
         options_stake REAL,
         cfd_lots REAL,
         cfd_leverage REAL
@@ -119,6 +120,9 @@ export class DbHelper {
     } catch (e) {}
     try {
       await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN gemini_api_key TEXT`).run();
+    } catch (e) {}
+    try {
+      await this.db.prepare(`ALTER TABLE user_settings ADD COLUMN waiting_state TEXT`).run();
     } catch (e) {}
     
     // Trading Reports

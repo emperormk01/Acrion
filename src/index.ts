@@ -199,6 +199,25 @@ const workerHandler = {
         if (update.message && update.message.text) {
           const chatId = update.message.chat.id;
           const text = update.message.text.trim();
+          
+          await dbHelper.initializeSchema();
+          const settings = await dbHelper.getUserSettings(chatId) || {};
+          
+          // Handle state-based inputs (like API keys)
+          if (settings.waiting_state && !text.startsWith("/")) {
+             const state = settings.waiting_state;
+             if (state.startsWith("set_key:")) {
+                const provider = state.split(":")[1];
+                const col = provider === 'poolside' ? 'poolside_api_key' : 'gemini_api_key';
+                
+                await dbHelper.updateUserSettings(chatId, col, text);
+                await dbHelper.updateUserSettings(chatId, 'waiting_state', "");
+                
+                await sendMessage(chatId, `✅ <b>${provider.charAt(0).toUpperCase() + provider.slice(1)} API Key saved!</b>\n\nI will now use your specific key for AI operations.`);
+                return jsonResponse({ ok: true });
+             }
+          }
+
           const args = text.split(" ");
           let command = args[0].toLowerCase();
           if (command.includes('@')) {
@@ -295,44 +314,14 @@ const workerHandler = {
             const gKey = settings.gemini_api_key ? `<code>${settings.gemini_api_key.substring(0, 4)}...${settings.gemini_api_key.substring(settings.gemini_api_key.length - 4)}</code>` : "❌ <i>Not Set</i>";
 
             let msg = `🔑 <b>AI API Key Management</b>\n\n`;
-            msg += `You can provide your own API keys to use for trading analysis. These are stored securely and only used for your chat sessions.\n\n`;
             msg += `• Poolside Key: ${pKey}\n`;
             msg += `• Gemini Key: ${gKey}\n\n`;
-            msg += `<b>How to update:</b>\n`;
-            msg += `Use the following commands:\n`;
-            msg += `- <code>/key poolside YOUR_KEY</code>\n`;
-            msg += `- <code>/key gemini YOUR_KEY</code>\n\n`;
-            msg += `To clear a key, use <code>/key clear &lt;provider&gt;</code>`;
-
-            const provider = args[1];
-            const keyValue = args[2];
-
-            if (provider && keyValue) {
-              const col = provider.toLowerCase() === 'poolside' ? 'poolside_api_key' : (provider.toLowerCase() === 'gemini' ? 'gemini_api_key' : null);
-              if (col) {
-                if (keyValue === 'clear') {
-                   await dbHelper.updateUserSettings(chatId, col, "");
-                   await sendMessage(chatId, `✅ <b>${provider.toUpperCase()} API Key cleared!</b>`);
-                } else {
-                   await dbHelper.updateUserSettings(chatId, col, keyValue);
-                   await sendMessage(chatId, `✅ <b>${provider.toUpperCase()} API Key saved!</b>\n\nI will now use your specific key for ${provider} operations.`);
-                }
-                return jsonResponse({ ok: true });
-              }
-            } else if (provider === 'clear') {
-               const subProvider = args[2];
-               const col = subProvider?.toLowerCase() === 'poolside' ? 'poolside_api_key' : (subProvider?.toLowerCase() === 'gemini' ? 'gemini_api_key' : null);
-               if (col) {
-                  await dbHelper.updateUserSettings(chatId, col, "");
-                  await sendMessage(chatId, `✅ <b>${subProvider.toUpperCase()} API Key cleared!</b>`);
-                  return jsonResponse({ ok: true });
-               }
-            }
+            msg += `Select a provider below to set your own API key. You will be prompted to send the key in the next message.`;
 
             const replyMarkup = {
               inline_keyboard: [
-                [{ text: "🌊 Set Poolside Key", switch_inline_query_current_chat: "/key poolside " }],
-                [{ text: "✨ Set Gemini Key", switch_inline_query_current_chat: "/key gemini " }],
+                [{ text: "🌊 Set Poolside Key", callback_data: "init_set_key:poolside" }, { text: "🗑 Clear", callback_data: "clear_key:poolside" }],
+                [{ text: "✨ Set Gemini Key", callback_data: "init_set_key:gemini" }, { text: "🗑 Clear", callback_data: "clear_key:gemini" }],
                 [{ text: "⚙️ Settings", callback_data: "settings:main" }]
               ]
             };
@@ -625,21 +614,55 @@ const workerHandler = {
             let msg = `🔑 <b>AI API Key Management</b>\n\n`;
             msg += `• Poolside Key: ${pKey}\n`;
             msg += `• Gemini Key: ${gKey}\n\n`;
-            msg += `<b>How to update:</b>\n`;
-            msg += `Use the following commands:\n`;
-            msg += `- <code>/key poolside YOUR_KEY</code>\n`;
-            msg += `- <code>/key gemini YOUR_KEY</code>\n\n`;
-            msg += `To clear a key, use <code>/key clear &lt;provider&gt;</code>`;
+            msg += `Select a provider below to set your own API key. You will be prompted to send the key in the next message.`;
 
             const replyMarkup = {
               inline_keyboard: [
-                [{ text: "🌊 Set Poolside Key", switch_inline_query_current_chat: "/key poolside " }],
-                [{ text: "✨ Set Gemini Key", switch_inline_query_current_chat: "/key gemini " }],
+                [{ text: "🌊 Set Poolside Key", callback_data: "init_set_key:poolside" }, { text: "🗑 Clear", callback_data: "clear_key:poolside" }],
+                [{ text: "✨ Set Gemini Key", callback_data: "init_set_key:gemini" }, { text: "🗑 Clear", callback_data: "clear_key:gemini" }],
                 [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
               ]
             };
             await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
             await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data.startsWith("init_set_key:")) {
+            const provider = data.split(":")[1];
+            await dbHelper.updateUserSettings(chatId, 'waiting_state', `set_key:${provider}`);
+            
+            let msg = `✨ <b>Setting ${provider.toUpperCase()} API Key</b>\n\n`;
+            msg += `Please send your API key as a plain text message now.\n\n`;
+            msg += `<i>Tip: Your message will be deleted after processing to keep your chat clean.</i>`;
+            
+            const replyMarkup = {
+              inline_keyboard: [[{ text: "❌ Cancel", callback_data: "settings:keys" }]]
+            };
+            
+            await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
+            await answerCallbackQuery(callbackQuery.id);
+          } else if (data && data.startsWith("clear_key:")) {
+            const provider = data.split(":")[1];
+            const col = provider === 'poolside' ? 'poolside_api_key' : 'gemini_api_key';
+            await dbHelper.updateUserSettings(chatId, col, "");
+            await answerCallbackQuery(callbackQuery.id, `✅ ${provider.toUpperCase()} Key cleared`);
+            
+            // Refresh keys menu
+            const settings = await dbHelper.getUserSettings(chatId) || {};
+            const pKey = settings.poolside_api_key ? `<code>${settings.poolside_api_key.substring(0, 4)}...${settings.poolside_api_key.substring(settings.poolside_api_key.length - 4)}</code>` : "❌ <i>Not Set</i>";
+            const gKey = settings.gemini_api_key ? `<code>${settings.gemini_api_key.substring(0, 4)}...${settings.gemini_api_key.substring(settings.gemini_api_key.length - 4)}</code>` : "❌ <i>Not Set</i>";
+
+            let msg = `🔑 <b>AI API Key Management</b>\n\n`;
+            msg += `• Poolside Key: ${pKey}\n`;
+            msg += `• Gemini Key: ${gKey}\n\n`;
+            msg += `Select a provider below to set your own API key.`;
+
+            const replyMarkup = {
+              inline_keyboard: [
+                [{ text: "🌊 Set Poolside Key", callback_data: "init_set_key:poolside" }, { text: "🗑 Clear", callback_data: "clear_key:poolside" }],
+                [{ text: "✨ Set Gemini Key", callback_data: "init_set_key:gemini" }, { text: "🗑 Clear", callback_data: "clear_key:gemini" }],
+                [{ text: "⬅️ Back to Settings", callback_data: "settings:main" }]
+              ]
+            };
+            await editMessage(chatId, callbackQuery.message.message_id, msg, replyMarkup);
           } else if (data && data === "settings:ai_menu") {
             const replyMarkup = {
               inline_keyboard: [
