@@ -135,3 +135,7 @@ npx wrangler deploy --config wrangler.toml
 ## 🧬 Secure Operational Principles
 - **No Client Keys**: All API credentials and personal tokens reside strictly inside encrypted Cloudflare vault storage. No front-end client exposures occur.
 - **State Integrity**: System configurations are retrieved directly from D1 on a per-request basis, guaranteeing flawless multi-tenant state separation.
+
+---
+
+**Prepared by Emperor M.K** ([@emperormk01](https://github.com/emperormk01) — emperormk01@gmail.com) — Telegram [@emperormk01](https://t.me/emperormk01)
